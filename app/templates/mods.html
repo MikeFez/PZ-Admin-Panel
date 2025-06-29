@@ -275,28 +275,28 @@
             document.getElementById('enabledModCount').textContent = enabledMods.length;
             document.getElementById('enabledModCountStat').textContent = enabledMods.length;
         }
-        
+
         function updateInstalledCount() {
             const installedMods = document.querySelectorAll('.badge.bg-success');
             const installedCount = installedMods.length;
-            
+
             // Update display elements if they exist
             const installedCountElement = document.getElementById('installedModCount');
             if (installedCountElement) {
                 installedCountElement.textContent = installedCount;
             }
         }
-        
+
         function updateInstallationStatus(currentWorkshopIds, currentModIds) {
             // Update the statistics display
             document.getElementById('installedWorkshopIds').textContent = currentWorkshopIds.length;
             document.getElementById('installedModIds').textContent = currentModIds.length;
-            
+
             // Update individual mod installation status
             document.querySelectorAll('.mod-item').forEach(modItem => {
                 const workshopIds = JSON.parse(modItem.getAttribute('data-workshop-ids') || '[]');
                 const badge = modItem.querySelector('.badge');
-                
+
                 let isInstalled = false;
                 for (const workshopId of workshopIds) {
                     if (currentWorkshopIds.includes(workshopId)) {
@@ -304,7 +304,7 @@
                         break;
                     }
                 }
-                
+
                 if (badge) {
                     if (isInstalled) {
                         badge.className = 'badge bg-success';
@@ -315,7 +315,7 @@
                     }
                 }
             });
-            
+
             updateInstalledCount();
         }
 
@@ -377,12 +377,12 @@
                         showAlert(data.error, 'danger');
                     } else {
                         showAlert(data.message, 'success');
-                        
+
                         // Update installation status with new data
                         if (data.current_workshop_ids && data.current_mod_ids) {
                             updateInstallationStatus(data.current_workshop_ids, data.current_mod_ids);
                         }
-                        
+
                         setTimeout(() => location.reload(), 1500);
                     }
                 })

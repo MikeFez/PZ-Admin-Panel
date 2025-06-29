@@ -216,11 +216,11 @@ def mods():
 def api_get_mods():
    try:
       mod_database = load_mods_database()
-      
+
       # Get current server mods from ini file to determine installation status
       ini_file = CONFIG['server']['server_ini_file']
       current_workshop_ids, current_mod_ids = parse_ini_mods(ini_file)
-      
+
       return jsonify({
          'mods': mod_database,
          'current_workshop_ids': current_workshop_ids,
@@ -340,10 +340,10 @@ def api_apply_mods():
 
       add_to_log(f"Applied {enabled_count} enabled mods to server configuration")
       add_to_log(f"Created backup: {os.path.basename(result)}")
-      
+
       # Recheck installation status after applying mods
       updated_workshop_ids, updated_mod_ids = parse_ini_mods(ini_file)
-      
+
       return jsonify({
          'message': f'Applied {enabled_count} enabled mods to server configuration',
          'backup': os.path.basename(result),

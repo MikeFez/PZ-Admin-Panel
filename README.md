@@ -1,6 +1,7 @@
 # Project Zomboid Server Admin Panel
 
 A modern, responsive web-based administration panel for managing Project Zomboid dedicated servers.
+**Note: I'm a software engineer with a lack of time. This was very much vibe-coded with Claude Sonnet 4.**
 
 ## Features
 
@@ -14,6 +15,7 @@ A modern, responsive web-based administration panel for managing Project Zomboid
 - **Live Player List**: See who's online/offline
 - **Player Teleportation**: Teleport players to each other or to predefined locations
 - **Player Activity Tracking**: Last seen timestamps for offline players
+- **Admin Management**: Grant/remove admin privileges for online players (requires manual `allow_admin` setup)
 
 ### 🧩 Mod Management
 - **Visual Mod Database**: Browse and manage your mod collection
@@ -44,7 +46,7 @@ A modern, responsive web-based administration panel for managing Project Zomboid
 
 2. **Initial Setup**:
    On first run, the application will create a `config/` directory with default configuration files.
-   
+
 3. **Configure Settings**:
    Edit `config/config.json` to match your server setup:
    ```json
@@ -76,14 +78,22 @@ A modern, responsive web-based administration panel for managing Project Zomboid
 
 ## Configuration
 
+### Configuration Overview
+
+All configuration and database files are stored in the `config/` directory. Most settings can be managed through the web interface, but some configurations require manual editing:
+
+- **Web UI Management**: Players, locations, and mods can be added/edited through the interface
+- **Manual Configuration Required**: Server settings (`config.json`) and admin privileges (`allow_admin` in `players_db.json`)
+- **Hybrid Management**: Some operations are more efficient when done manually (bulk imports, mass changes)
+
 ### Configuration Files
 
 All configuration and database files are stored in the `config/` directory:
 
-- **`config.json`**: Main application configuration
-- **`players_db.json`**: Player database (persistent data)
-- **`locations_db.json`**: Saved teleport locations
-- **`mods_db.json`**: Mod collection database
+- **`config.json`**: Main application configuration (manual editing required)
+- **`players_db.json`**: Player database (UI + manual - `allow_admin` requires manual editing)
+- **`locations_db.json`**: Saved teleport locations (UI + manual)
+- **`mods_db.json`**: Mod collection database (UI + manual)
 
 ### Server Settings (`config/config.json`)
 
@@ -122,10 +132,16 @@ Stores persistent player information:
 }
 ```
 
+**Key Descriptions:**
+- `first_seen`: Timestamp when the player first joined the server
+- `last_seen`: Timestamp when the player was last seen online
+- `allow_admin`: **Critical for admin management** - Must be manually set to `true` to enable Grant/Remove Admin buttons in the UI
+
 **Manual Management:**
 - **Reset player data**: Delete specific entries or clear the entire file
-- **Grant admin privileges**: Set `"allow_admin": true` for specific players
+- **Grant admin privileges**: Set `"allow_admin": true` for specific players to enable admin UI controls
 - **Backup**: Copy the file before making manual changes
+- **Important**: The `allow_admin` key must be set manually in this file - it cannot be changed through the web UI
 
 #### Locations Database (`config/locations_db.json`)
 Stores saved teleport locations:
@@ -138,6 +154,11 @@ Stores saved teleport locations:
   }
 }
 ```
+
+**Key Descriptions:**
+- `coordinates`: Position in "x,y,z" format (e.g., "12345,0,12345")
+- `description`: Optional text description of the location
+- `created`: Timestamp when the location was added
 
 **Manual Management:**
 - **Add locations**: Add new entries with coordinates in "x,y,z" format
@@ -156,6 +177,17 @@ Stores mod collection and configurations:
   }
 }
 ```
+
+**Key Descriptions:**
+- `workshop_item_name`: Display name fetched from Steam Workshop
+- `workshop_ids`: Array of Steam Workshop item IDs
+- `mod_ids`: Array of actual mod IDs used by the server
+- `enabled`: Whether the mod is selected for use (controlled via UI)
+
+**Installation Status:**
+- The UI shows "Installed/Not Installed" status by parsing the server INI file (`server_ini_file`)
+- This status reflects whether mods are actually active on the server, not just enabled in the database
+- A mod can be "enabled" in the database but "Not Installed" if it hasn't been applied to the server configuration
 
 **Manual Management:**
 - **Bulk mod import**: Add multiple mods programmatically
@@ -183,94 +215,6 @@ The integrated mod manager allows you to easily manage your Project Zomboid serv
 - **Quick Selection**: Use "Select All", "Clear Selection", or "Select Active Mods"
 - **Remove Mods**: Click the red "Remove" button to delete mods from database
 - **Backup**: Create backups of your mod database before major changes
-
-## Configuration
-
-### Configuration Files
-
-All configuration and database files are stored in the `config/` directory:
-
-- **`config.json`**: Main application configuration
-- **`players_db.json`**: Player database (persistent data)
-- **`locations_db.json`**: Saved teleport locations
-- **`mods_db.json`**: Mod collection database
-
-### Server Settings (`config/config.json`)
-
-```json
-{
-  "server": {
-    "zomboid_server_dir": "C:\\Path\\To\\Project Zomboid Dedicated Server",
-    "server_launch_file": "StartServer64.bat",
-    "server_ini_file": "C:\\Users\\YourUser\\Zomboid\\Server\\servertest.ini",
-    "web_host": "0.0.0.0",
-    "web_port": 5000,
-    "max_log_lines": 1000
-  }
-}
-```
-
-**Configuration Options:**
-- `zomboid_server_dir`: Path to your Project Zomboid server installation
-- `server_launch_file`: Server executable filename (usually `StartServer64.bat`)
-- `server_ini_file`: Path to your server's configuration INI file
-- `web_host`: Web interface host (`"0.0.0.0"` for network access, `"127.0.0.1"` for local only)
-- `web_port`: Web interface port (default: 5000)
-- `max_log_lines`: Maximum number of log lines to keep in memory (default: 1000)
-
-### Database Files
-
-#### Player Database (`config/players_db.json`)
-Stores persistent player information:
-```json
-{
-  "PlayerName": {
-    "first_seen": "2024-01-01T12:00:00",
-    "last_seen": "2024-01-01T15:30:00",
-    "allow_admin": false
-  }
-}
-```
-
-**Manual Management:**
-- **Reset player data**: Delete specific entries or clear the entire file
-- **Grant admin privileges**: Set `"allow_admin": true` for specific players
-- **Backup**: Copy the file before making manual changes
-
-#### Locations Database (`config/locations_db.json`)
-Stores saved teleport locations:
-```json
-{
-  "LocationName": {
-    "coordinates": "x,y,z",
-    "description": "Optional description",
-    "created": "2024-01-01T12:00:00"
-  }
-}
-```
-
-**Manual Management:**
-- **Add locations**: Add new entries with coordinates in "x,y,z" format
-- **Modify coordinates**: Update existing location coordinates
-- **Bulk import**: Add multiple locations from spreadsheets or other sources
-
-#### Mod Database (`config/mods_db.json`)
-Stores mod collection and configurations:
-```json
-{
-  "https://steamcommunity.com/sharedfiles/filedetails/?id=123456": {
-    "workshop_item_name": "Mod Name",
-    "workshop_ids": ["123456"],
-    "mod_ids": ["ModID"],
-    "enabled": true
-  }
-}
-```
-
-**Manual Management:**
-- **Bulk mod import**: Add multiple mods programmatically
-- **Enable/disable mods**: Change `"enabled"` status for multiple mods
-- **Cleanup**: Remove unused or broken mod entries
 
 ### Backup and Recovery
 
@@ -331,6 +275,12 @@ The panel provides a REST API for programmatic access:
 - Missing database files will be created automatically on first run
 - Backup your `config/` directory before making manual changes
 
+### Admin Management Issues
+- **Grant/Remove Admin buttons not showing**: Ensure `"allow_admin": true` is set for the player in `config/players_db.json`
+- **Admin commands not working**: Verify the server is running and the player is online
+- **Player not in database**: Players are automatically added when they first join the server
+- **Admin status not persisting**: Only `allow_admin` persists across sessions; actual admin status (`is_admin`) is temporary and in-memory only
+
 ## Development
 
 The panel is built with:
@@ -383,6 +333,7 @@ The panel is built with:
 - The web interface has no authentication by default
 - Only run on trusted networks or behind a reverse proxy with authentication
 - Player and server data is stored in plain text JSON files
+- Admin privileges (`allow_admin`) must be manually configured and are permanent until manually changed
 - The application has full control over your Project Zomboid server
 
 ## License
