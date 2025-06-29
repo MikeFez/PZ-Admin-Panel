@@ -128,8 +128,9 @@
                             <div class="stats flex-grow-1">
                                 <p><strong>Total Mods:</strong> <span id="totalMods">{{ mod_database|length }}</span></p>
                                 <p><strong>Enabled:</strong> <span id="enabledModCountStat">{{ mod_database.values()|selectattr('enabled', 'equalto', true)|list|length }}</span></p>
-                                <p><strong>Active Workshop IDs:</strong> <span id="activeWorkshopIds">{{ current_workshop_ids|length }}</span></p>
-                                <p><strong>Active Mod IDs:</strong> <span id="activeModIds">{{ current_mod_ids|length }}</span></p>
+                                <p><strong>Installed:</strong> <span id="installedModCount">0</span></p>
+                                <p><strong>Installed Workshop IDs:</strong> <span id="installedWorkshopIds">{{ current_workshop_ids|length }}</span></p>
+                                <p><strong>Installed Mod IDs:</strong> <span id="installedModIds">{{ current_mod_ids|length }}</span></p>
                             </div>
                             <div class="mt-auto">
                                 <small class="text-muted">
@@ -208,7 +209,7 @@
                         <div class="card-body">
                             <div id="modList">
                                 {% for workshop_url, mod_data in mod_database.items() %}
-                                <div class="mod-item p-3" data-workshop-url="{{ workshop_url }}" data-enabled="{{ mod_data.get('enabled', true)|lower }}">
+                                <div class="mod-item p-3" data-workshop-url="{{ workshop_url }}" data-enabled="{{ mod_data.get('enabled', true)|lower }}" data-workshop-ids="{{ mod_data.workshop_ids|tojson }}">
                                     <div class="row align-items-center">
                                         <div class="col-md-2">
                                             {% if mod_data.get('enabled', true) %}
@@ -237,16 +238,10 @@
                                             </div>
                                         </div>
                                         <div class="col-md-2 text-center">
-                                            {% set is_active = false %}
-                                            {% for workshop_id in mod_data.workshop_ids %}
-                                                {% if workshop_id in current_workshop_ids %}
-                                                    {% set is_active = true %}
-                                                {% endif %}
-                                            {% endfor %}
-                                            {% if is_active %}
-                                                <span class="badge bg-success">Active</span>
+                                            {% if mod_data.workshop_ids | is_mod_installed(current_workshop_ids) %}
+                                                <span class="badge bg-success">Installed</span>
                                             {% else %}
-                                                <span class="badge bg-secondary">Inactive</span>
+                                                <span class="badge bg-secondary">Not Installed</span>
                                             {% endif %}
                                         </div>
                                         <div class="col-md-2 text-end">
@@ -273,11 +268,55 @@
 
         // Update enabled count on page load
         updateEnabledCount();
+        updateInstalledCount();
 
         function updateEnabledCount() {
             const enabledMods = document.querySelectorAll('.mod-item[data-enabled="true"]');
             document.getElementById('enabledModCount').textContent = enabledMods.length;
             document.getElementById('enabledModCountStat').textContent = enabledMods.length;
+        }
+        
+        function updateInstalledCount() {
+            const installedMods = document.querySelectorAll('.badge.bg-success');
+            const installedCount = installedMods.length;
+            
+            // Update display elements if they exist
+            const installedCountElement = document.getElementById('installedModCount');
+            if (installedCountElement) {
+                installedCountElement.textContent = installedCount;
+            }
+        }
+        
+        function updateInstallationStatus(currentWorkshopIds, currentModIds) {
+            // Update the statistics display
+            document.getElementById('installedWorkshopIds').textContent = currentWorkshopIds.length;
+            document.getElementById('installedModIds').textContent = currentModIds.length;
+            
+            // Update individual mod installation status
+            document.querySelectorAll('.mod-item').forEach(modItem => {
+                const workshopIds = JSON.parse(modItem.getAttribute('data-workshop-ids') || '[]');
+                const badge = modItem.querySelector('.badge');
+                
+                let isInstalled = false;
+                for (const workshopId of workshopIds) {
+                    if (currentWorkshopIds.includes(workshopId)) {
+                        isInstalled = true;
+                        break;
+                    }
+                }
+                
+                if (badge) {
+                    if (isInstalled) {
+                        badge.className = 'badge bg-success';
+                        badge.textContent = 'Installed';
+                    } else {
+                        badge.className = 'badge bg-secondary';
+                        badge.textContent = 'Not Installed';
+                    }
+                }
+            });
+            
+            updateInstalledCount();
         }
 
         function toggleMod(workshopUrl) {
@@ -338,6 +377,12 @@
                         showAlert(data.error, 'danger');
                     } else {
                         showAlert(data.message, 'success');
+                        
+                        // Update installation status with new data
+                        if (data.current_workshop_ids && data.current_mod_ids) {
+                            updateInstallationStatus(data.current_workshop_ids, data.current_mod_ids);
+                        }
+                        
                         setTimeout(() => location.reload(), 1500);
                     }
                 })

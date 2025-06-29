@@ -52,6 +52,12 @@ FLASK_APP.secret_key = 'zomboid-admin-secret-key'
 WEKZEUG_LOG = logging.getLogger("werkzeug")
 WEKZEUG_LOG.disabled = True
 
+# Add custom Jinja filter for checking mod installation status
+@FLASK_APP.template_filter('is_mod_installed')
+def is_mod_installed(mod_workshop_ids, current_workshop_ids):
+    """Check if any of the mod's workshop IDs are in the current installed list"""
+    return any(wid in current_workshop_ids for wid in mod_workshop_ids)
+
 @FLASK_APP.route("/")
 def index():
    # Merge current session users with persistent database
@@ -210,7 +216,16 @@ def mods():
 def api_get_mods():
    try:
       mod_database = load_mods_database()
-      return jsonify({'mods': mod_database})
+      
+      # Get current server mods from ini file to determine installation status
+      ini_file = CONFIG['server']['server_ini_file']
+      current_workshop_ids, current_mod_ids = parse_ini_mods(ini_file)
+      
+      return jsonify({
+         'mods': mod_database,
+         'current_workshop_ids': current_workshop_ids,
+         'current_mod_ids': current_mod_ids
+      })
    except Exception as e:
       return jsonify({'error': str(e)}), 500
 
@@ -325,11 +340,17 @@ def api_apply_mods():
 
       add_to_log(f"Applied {enabled_count} enabled mods to server configuration")
       add_to_log(f"Created backup: {os.path.basename(result)}")
+      
+      # Recheck installation status after applying mods
+      updated_workshop_ids, updated_mod_ids = parse_ini_mods(ini_file)
+      
       return jsonify({
          'message': f'Applied {enabled_count} enabled mods to server configuration',
          'backup': os.path.basename(result),
          'workshop_ids_count': len(all_workshop_ids),
-         'mod_ids_count': len(all_mod_ids)
+         'mod_ids_count': len(all_mod_ids),
+         'current_workshop_ids': updated_workshop_ids,
+         'current_mod_ids': updated_mod_ids
       })
    except Exception as e:
       return jsonify({'error': str(e)}), 500
