@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mod Manager - Project Zomboid Server</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .mod-panel {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px 0;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .mod-item {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .mod-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .mod-item[data-enabled="false"] {
+            opacity: 0.6;
+            background-color: #f8f9fa;
+        }
+
+        .mod-item[data-enabled="true"] {
+            border-left: 4px solid #28a745;
+        }
+
+        .btn-apply-mods {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+
+        .btn-apply-mods:hover {
+            background: linear-gradient(45deg, #218838, #1aa085);
+            color: white;
+        }
+
+        .workshop-link {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+
+        .workshop-link:hover {
+            text-decoration: underline;
+        }
+
+        .mod-ids {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
+
+        .stats-card {
+            background: linear-gradient(45deg, #ffecd2 0%, #fcb69f 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="mod-panel">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h1 class="text-white">
+                            <i class="fas fa-puzzle-piece"></i> Mod Manager
+                        </h1>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-light">
+                            <i class="fas fa-arrow-left"></i> Back to Admin Panel
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <div class="row">
+                <!-- Mod Statistics -->
+                <div class="col-lg-3 mb-4">
+                    <div class="card stats-card h-100">
+                        <div class="card-body">
+                            <h5><i class="fas fa-chart-bar"></i> Statistics</h5>
+                            <div class="stats">
+                                <p><strong>Total Mods:</strong> <span id="totalMods">{{ mod_database|length }}</span></p>
+                                <p><strong>Enabled:</strong> <span id="enabledModCountStat">{{ mod_database.values()|selectattr('enabled', 'equalto', true)|list|length }}</span></p>
+                                <p><strong>Active Workshop IDs:</strong> <span id="activeWorkshopIds">{{ current_workshop_ids|length }}</span></p>
+                                <p><strong>Active Mod IDs:</strong> <span id="activeModIds">{{ current_mod_ids|length }}</span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-apply-mods" onclick="applyEnabledMods()">
+                                    <i class="fas fa-cog"></i> Apply Enabled Mods
+                                </button>
+                                <button class="btn btn-info" onclick="backupModDatabase()">
+                                    <i class="fas fa-save"></i> Backup Database
+                                </button>
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <span id="enabledModCount">0</span> mods enabled for application
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add New Mod -->
+                <div class="col-lg-9 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4><i class="fas fa-plus"></i> Add New Mod</h4>
+                        </div>
+                        <div class="card-body">
+                            <form id="addModForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Workshop URL</label>
+                                            <div class="input-group">
+                                                <input type="url" class="form-control" id="workshopUrl"
+                                                       placeholder="https://steamcommunity.com/sharedfiles/filedetails/?id=123456" required>
+                                                <button type="button" class="btn btn-outline-primary" onclick="fetchModInfo()">
+                                                    <i class="fas fa-download"></i> Auto-Fill
+                                                </button>
+                                            </div>
+                                            <small class="form-text text-muted">Auto-Fill will try to fetch mod information from Steam Workshop</small>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Mod Name</label>
+                                            <input type="text" class="form-control" id="modName"
+                                                   placeholder="Enter mod name" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Workshop IDs (comma-separated)</label>
+                                            <input type="text" class="form-control" id="workshopIds"
+                                                   placeholder="123456,789012" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Mod IDs (comma-separated)</label>
+                                            <input type="text" class="form-control" id="modIds"
+                                                   placeholder="modname1,modname2" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="fas fa-plus"></i> Add Mod
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mod List -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h4><i class="fas fa-list"></i> Available Mods</h4>
+                            <div class="input-group" style="width: 300px;">
+                                <input type="text" class="form-control" id="searchMods" placeholder="Search mods...">
+                                <button class="btn btn-outline-secondary" onclick="clearSearch()">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="modList">
+                                {% for workshop_url, mod_data in mod_database.items() %}
+                                <div class="mod-item p-3" data-workshop-url="{{ workshop_url }}" data-enabled="{{ mod_data.get('enabled', true)|lower }}">
+                                    <div class="row align-items-center">
+                                        <div class="col-md-2">
+                                            {% if mod_data.get('enabled', true) %}
+                                                <button class="btn btn-success btn-sm mod-toggle-btn"
+                                                        data-workshop-url="{{ workshop_url }}"
+                                                        onclick="toggleMod('{{ workshop_url }}')">
+                                                    <i class="fas fa-check"></i> Enabled
+                                                </button>
+                                            {% else %}
+                                                <button class="btn btn-secondary btn-sm mod-toggle-btn"
+                                                        data-workshop-url="{{ workshop_url }}"
+                                                        onclick="toggleMod('{{ workshop_url }}')">
+                                                    <i class="fas fa-times"></i> Disabled
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6 class="mb-1">
+                                                <a href="{{ workshop_url }}" target="_blank" class="workshop-link">
+                                                    {{ mod_data.workshop_item_name }}
+                                                </a>
+                                            </h6>
+                                            <div class="mod-ids">
+                                                <small><strong>Workshop IDs:</strong> {{ mod_data.workshop_ids|join(', ') }}</small><br>
+                                                <small><strong>Mod IDs:</strong> {{ mod_data.mod_ids|join(', ') }}</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-2 text-center">
+                                            {% set is_active = false %}
+                                            {% for workshop_id in mod_data.workshop_ids %}
+                                                {% if workshop_id in current_workshop_ids %}
+                                                    {% set is_active = true %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            {% if is_active %}
+                                                <span class="badge bg-success">Active</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Inactive</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-md-2 text-end">
+                                            <button class="btn btn-danger btn-sm" onclick="removeMod('{{ workshop_url }}')">
+                                                <i class="fas fa-trash"></i> Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Current active mod data
+        const currentWorkshopIds = {{ current_workshop_ids|tojson }};
+        const currentModIds = {{ current_mod_ids|tojson }};
+
+        // Update enabled count on page load
+        updateEnabledCount();
+
+        function updateEnabledCount() {
+            const enabledMods = document.querySelectorAll('.mod-item[data-enabled="true"]');
+            document.getElementById('enabledModCount').textContent = enabledMods.length;
+            document.getElementById('enabledModCountStat').textContent = enabledMods.length;
+        }
+
+        function toggleMod(workshopUrl) {
+            const button = document.querySelector(`[data-workshop-url="${workshopUrl}"].mod-toggle-btn`);
+            const modItem = button.closest('.mod-item');
+
+            // Disable button during request
+            button.disabled = true;
+
+            fetch('/api/mods/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workshop_url: workshopUrl })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    // Update button appearance
+                    if (data.enabled) {
+                        button.className = 'btn btn-success btn-sm mod-toggle-btn';
+                        button.innerHTML = '<i class="fas fa-check"></i> Enabled';
+                        modItem.setAttribute('data-enabled', 'true');
+                    } else {
+                        button.className = 'btn btn-secondary btn-sm mod-toggle-btn';
+                        button.innerHTML = '<i class="fas fa-times"></i> Disabled';
+                        modItem.setAttribute('data-enabled', 'false');
+                    }
+                    updateEnabledCount();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to toggle mod', 'danger');
+            })
+            .finally(() => {
+                button.disabled = false;
+            });
+        }
+
+        function applyEnabledMods() {
+            const enabledMods = document.querySelectorAll('.mod-item[data-enabled="true"]');
+
+            if (enabledMods.length === 0) {
+                showAlert('No mods are currently enabled', 'warning');
+                return;
+            }
+
+            if (confirm(`Apply ${enabledMods.length} enabled mods to server configuration?`)) {
+                fetch('/api/mods/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showAlert(data.error, 'danger');
+                    } else {
+                        showAlert(data.message, 'success');
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Failed to apply mods', 'danger');
+                });
+            }
+        }
+
+        function removeMod(workshopUrl) {
+            if (confirm('Are you sure you want to remove this mod from the database?')) {
+                fetch('/api/mods/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workshop_url: workshopUrl })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showAlert(data.error, 'danger');
+                    } else {
+                        showAlert(data.message, 'success');
+                        // Remove the mod item from the UI
+                        const modItem = document.querySelector(`[data-workshop-url="${workshopUrl}"]`);
+                        if (modItem) modItem.remove();
+                        updateEnabledCount();
+                        updateTotalMods();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Failed to remove mod', 'danger');
+                });
+            }
+        }
+
+        function updateTotalMods() {
+            const totalMods = document.querySelectorAll('.mod-item').length;
+            document.getElementById('totalMods').textContent = totalMods;
+        }
+
+        // Add mod form submission
+        document.getElementById('addModForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const formData = {
+                workshop_url: document.getElementById('workshopUrl').value,
+                mod_name: document.getElementById('modName').value,
+                workshop_ids: document.getElementById('workshopIds').value,
+                mod_ids: document.getElementById('modIds').value
+            };
+
+            fetch('/api/mods/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert(data.message, 'success');
+                    this.reset();
+                    setTimeout(() => location.reload(), 1500);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to add mod', 'danger');
+            });
+        });
+
+        // Search functionality
+        document.getElementById('searchMods').addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const modItems = document.querySelectorAll('.mod-item');
+
+            modItems.forEach(item => {
+                const modName = item.querySelector('h6').textContent.toLowerCase();
+                const modIds = item.querySelector('.mod-ids').textContent.toLowerCase();
+
+                if (modName.includes(searchTerm) || modIds.includes(searchTerm)) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+
+        function clearSearch() {
+            document.getElementById('searchMods').value = '';
+            const modItems = document.querySelectorAll('.mod-item');
+            modItems.forEach(item => item.style.display = '');
+        }
+
+        function fetchModInfo() {
+            const workshopUrl = document.getElementById('workshopUrl').value.trim();
+            if (!workshopUrl) {
+                showAlert('Please enter a Steam Workshop URL first', 'warning');
+                return;
+            }
+
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+            button.disabled = true;
+
+            fetch('/api/mods/fetch-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workshop_url: workshopUrl })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    document.getElementById('modName').value = data.mod_name;
+                    document.getElementById('workshopIds').value = data.workshop_ids.join(',');
+                    document.getElementById('modIds').value = data.mod_ids.join(',');
+
+                    if (data.suggested) {
+                        showAlert('Information auto-filled from Steam Workshop. Please verify the Mod IDs are correct.', 'info');
+                    } else {
+                        showAlert('Information successfully fetched from Steam Workshop', 'success');
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to fetch mod information', 'danger');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+        }
+
+        function backupModDatabase() {
+            fetch('/api/mods/backup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert(data.message, 'success');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to create backup', 'danger');
+            });
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            const container = document.querySelector('.container-fluid');
+            container.insertBefore(alertDiv, container.firstChild);
+
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

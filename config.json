@@ -1,0 +1,36 @@
+{
+    "server": {
+        "zomboid_server_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Project Zomboid Dedicated Server",
+        "server_launch_file": "StartServer64.bat",
+        "web_host": "0.0.0.0",
+        "web_port": 5000,
+        "max_log_lines": 1000,
+        "server_ini_file": "C:\\Users\\MikeFez\\Zomboid\\Server\\servertest.ini",
+        "server_spawnregions_file": "C:\\Users\\MikeFez\\Zomboid\\Server\\servertest_spawnregions.lua",
+        "server_spawnpoints_file": "C:\\Users\\MikeFez\\Zomboid\\Server\\servertest_spawnpoints.lua"
+    },
+    "indicators": {
+        "server_started": "*** SERVER STARTED ***",
+        "server_already_launched": "RakNet.Startup() return code: 5 (0 means success)",
+        "server_quit": ">PAUSE",
+        "user_logged_in": "ConnectionManager: [fully-connected]",
+        "user_logged_out": "ConnectionManager: [disconnect]"
+    },
+    "locations": {
+        "Base 1": "11914,6725,0",
+        "West Point": "11914,6725,0",
+        "Muldraugh": "10635,9845,0",
+        "Riverside": "6509,5059,0",
+        "Rosewood": "8108,11643,0",
+        "Valley Station": "12611,5521,0"
+    },
+    "commands": {
+        "quick_commands": [
+            {"name": "Save World", "command": "save", "icon": "fas fa-save", "style": "btn-info"},
+            {"name": "List Players", "command": "players", "icon": "fas fa-list", "style": "btn-secondary"},
+            {"name": "Server Message", "command": "servermsg \"Admin message\"", "icon": "fas fa-bullhorn", "style": "btn-primary"},
+            {"name": "Set Time Day", "command": "settime 6", "icon": "fas fa-sun", "style": "btn-warning"},
+            {"name": "Set Time Night", "command": "settime 18", "icon": "fas fa-moon", "style": "btn-dark"}
+        ]
+    }
+}
