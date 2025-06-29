@@ -8,14 +8,14 @@ import os
 from datetime import datetime
 import re
 
-# Load configuration
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), '..', 'config.json')
-try:
-    with open(CONFIG_FILE, 'r') as f:
-        CONFIG = json.load(f)
-except FileNotFoundError:
-    print(f"Warning: Config file {CONFIG_FILE} not found. Please create one at {CONFIG_FILE}")
-    raise
+# Import configuration module
+from config import (
+    CONFIG, INDICATORS,
+    load_player_database, save_player_database,
+    load_locations_database, save_locations_database,
+    load_mods_database, save_mods_database,
+    MODS_DB_FILE
+)
 
 # Global variables for server management
 SERVER_SHOULD_QUIT = False
@@ -27,11 +27,11 @@ SERVER_THREAD = None  # Track the server thread
 
 ZOMBOID_SERVER_DIR = CONFIG['server']['zomboid_server_dir']
 ZOMBOID_SERVER_LAUNCH = os.path.join(ZOMBOID_SERVER_DIR, CONFIG['server']['server_launch_file'])
-ZOMBOID_SERVER_STARTED_INDICATOR = CONFIG['indicators']['server_started']
-ZOMBOID_SERVER_ALREADY_LAUNCHED_INDICATOR = CONFIG['indicators']['server_already_launched']
-ZOMBOID_SERVER_QUIT_INDICATOR = CONFIG['indicators']['server_quit']
-ZOMBOID_USER_LOGGED_IN_INDICATOR = CONFIG['indicators']['user_logged_in']
-ZOMBOID_USER_LOGGED_OUT_INDICATOR = CONFIG['indicators']['user_logged_out']
+ZOMBOID_SERVER_STARTED_INDICATOR = INDICATORS['server_started']
+ZOMBOID_SERVER_ALREADY_LAUNCHED_INDICATOR = INDICATORS['server_already_launched']
+ZOMBOID_SERVER_QUIT_INDICATOR = INDICATORS['server_quit']
+ZOMBOID_USER_LOGGED_IN_INDICATOR = INDICATORS['user_logged_in']
+ZOMBOID_USER_LOGGED_OUT_INDICATOR = INDICATORS['user_logged_out']
 
 USERS = {}
 # {
@@ -42,30 +42,9 @@ USERS = {}
    # }
 # }
 
-# Load player database
-PLAYER_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'players_db.json')
-try:
-    with open(PLAYER_DB_FILE, 'r') as f:
-        PLAYER_DATABASE = json.load(f)
-except FileNotFoundError:
-    PLAYER_DATABASE = {}
-    # Create the file
-    with open(PLAYER_DB_FILE, 'w') as f:
-        json.dump(PLAYER_DATABASE, f, indent=4)
-
-# Load locations database
-LOCATIONS_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'locations_db.json')
-try:
-    with open(LOCATIONS_DB_FILE, 'r') as f:
-        LOCATIONS_DATABASE = json.load(f)
-except FileNotFoundError:
-    LOCATIONS_DATABASE = {}
-    # Create the file
-    with open(LOCATIONS_DB_FILE, 'w') as f:
-        json.dump(LOCATIONS_DATABASE, f, indent=4)
-
-# Load mods database path
-MODS_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'mods_db.json')
+# Load databases using the config module
+PLAYER_DATABASE = load_player_database()
+LOCATIONS_DATABASE = load_locations_database()
 
 # Configure Flask, add blueprints, and reduce logging
 FLASK_APP = Flask(__name__)
@@ -128,12 +107,14 @@ def api_start_server():
 
    try:
       SERVER_STATUS = "Starting"
+      add_to_log("Server start command received - initializing...")
       # Start server in background thread
       SERVER_THREAD = Thread(target=run_server_in_thread, daemon=True)
       SERVER_THREAD.start()
       return jsonify({'message': 'Server start initiated'})
    except Exception as e:
       SERVER_STATUS = "Error"
+      add_to_log(f"Failed to start server: {e}")
       return jsonify({'error': str(e)}), 500
 
 @FLASK_APP.route('/api/server/stop', methods=['POST'])
@@ -147,9 +128,7 @@ def api_stop_server():
    # Try to send quit command if server is running
    if PROC and PROC.poll() is None:
       try:
-         PROC.stdin.write("quit\n".encode('utf-8'))
-         PROC.stdin.flush()
-         add_to_log("Server stop command sent")
+         send_server_command("quit")
       except Exception as e:
          add_to_log(f"Error sending quit command: {e}")
 
@@ -157,33 +136,23 @@ def api_stop_server():
 
 @FLASK_APP.route('/api/command', methods=['POST'])
 def api_send_command():
-   global PROC
    data = request.get_json()
    command = data.get('command', '').strip()
 
    if not command:
       return jsonify({'error': 'Command cannot be empty'}), 400
 
-   if not PROC or PROC.poll() is not None:
-      return jsonify({'error': 'Server is not running'}), 400
-
    try:
-      PROC.stdin.write(f"{command}\n".encode('utf-8'))
-      PROC.stdin.flush()
+      send_server_command(command)
       return jsonify({'message': f'Command sent: {command}'})
    except Exception as e:
       return jsonify({'error': str(e)}), 500
 
 @FLASK_APP.route('/player_tp/<string:location>/<string:player>')
 def player_tp(location, player):
-   if not PROC or PROC.poll() is not None:
-      flash('Server is not running!', 'error')
-      return redirect(url_for('index'))
-
    try:
       command = f'teleport "{player}" "{location}"'
-      PROC.stdin.write(f"{command}\n".encode('utf-8'))
-      PROC.stdin.flush()
+      send_server_command(command)
       flash(f'Teleported {player} to {location}', 'success')
    except Exception as e:
       flash(f'Error sending teleport command: {str(e)}', 'error')
@@ -191,10 +160,6 @@ def player_tp(location, player):
 
 @FLASK_APP.route('/location_tp/<string:location>/<string:player>')
 def location_tp(location, player):
-   if not PROC or PROC.poll() is not None:
-      flash('Server is not running!', 'error')
-      return redirect(url_for('index'))
-
    # Check if location exists in database
    if location not in LOCATIONS_DATABASE:
       flash(f'Unknown location: {location}', 'error')
@@ -203,8 +168,7 @@ def location_tp(location, player):
    try:
       coordinates = LOCATIONS_DATABASE[location]["coordinates"]
       command = f'tpto "{player}" "{coordinates}"'
-      PROC.stdin.write(f"{command}\n".encode('utf-8'))
-      PROC.stdin.flush()
+      send_server_command(command)
       flash(f'Teleported {player} to {location}', 'success')
    except Exception as e:
       flash(f'Error sending teleport command: {str(e)}', 'error')
@@ -219,8 +183,7 @@ def quit():
    # Also stop the game server if it's running
    if PROC and PROC.poll() is None:
       try:
-         PROC.stdin.write("quit\n".encode('utf-8'))
-         PROC.stdin.flush()
+         send_server_command("quit")
       except Exception as e:
          print(f"Error stopping server during shutdown: {e}")
 
@@ -229,8 +192,7 @@ def quit():
 @FLASK_APP.route("/mods")
 def mods():
    try:
-      with open(MODS_DB_FILE, 'r') as f:
-         mod_database = json.load(f)
+      mod_database = load_mods_database()
 
       # Get current server mods from ini file
       ini_file = CONFIG['server']['server_ini_file']
@@ -247,8 +209,7 @@ def mods():
 @FLASK_APP.route('/api/mods', methods=['GET'])
 def api_get_mods():
    try:
-      with open(MODS_DB_FILE, 'r') as f:
-         mod_database = json.load(f)
+      mod_database = load_mods_database()
       return jsonify({'mods': mod_database})
    except Exception as e:
       return jsonify({'error': str(e)}), 500
@@ -270,8 +231,7 @@ def api_add_mod():
       if validation_errors:
          return jsonify({'error': 'Validation failed', 'details': validation_errors}), 400
 
-      with open(MODS_DB_FILE, 'r') as f:
-         mod_database = json.load(f)
+      mod_database = load_mods_database()
 
       mod_database[workshop_url] = {
          'workshop_item_name': mod_name,
@@ -280,8 +240,7 @@ def api_add_mod():
          'enabled': True
       }
 
-      with open(MODS_DB_FILE, 'w') as f:
-         json.dump(mod_database, f, indent=4)
+      save_mods_database(mod_database)
 
       return jsonify({'message': 'Mod added successfully'})
    except Exception as e:
@@ -296,16 +255,14 @@ def api_remove_mod():
       if not workshop_url:
          return jsonify({'error': 'Workshop URL is required'}), 400
 
-      with open(MODS_DB_FILE, 'r') as f:
-         mod_database = json.load(f)
+      mod_database = load_mods_database()
 
       if workshop_url not in mod_database:
          return jsonify({'error': 'Mod not found'}), 404
 
       del mod_database[workshop_url]
 
-      with open(MODS_DB_FILE, 'w') as f:
-         json.dump(mod_database, f, indent=4)
+      save_mods_database(mod_database)
 
       return jsonify({'message': 'Mod removed successfully'})
    except Exception as e:
@@ -320,8 +277,7 @@ def api_toggle_mod():
       if not workshop_url:
          return jsonify({'error': 'Workshop URL is required'}), 400
 
-      with open(MODS_DB_FILE, 'r') as f:
-         mod_database = json.load(f)
+      mod_database = load_mods_database()
 
       if workshop_url not in mod_database:
          return jsonify({'error': 'Mod not found'}), 404
@@ -330,8 +286,7 @@ def api_toggle_mod():
       current_state = mod_database[workshop_url].get('enabled', True)
       mod_database[workshop_url]['enabled'] = not current_state
 
-      with open(MODS_DB_FILE, 'w') as f:
-         json.dump(mod_database, f, indent=4)
+      save_mods_database(mod_database)
 
       new_state = mod_database[workshop_url]['enabled']
       return jsonify({
@@ -353,7 +308,7 @@ def api_apply_mods():
 
       # Only process enabled mods
       for url, mod_data in mod_database.items():
-         if mod_data.get('enabled', True):  # Default to True for backward compatibility
+         if mod_data.get('enabled'):
             all_workshop_ids.extend(mod_data['workshop_ids'])
             all_mod_ids.extend(mod_data['mod_ids'])
             enabled_count += 1
@@ -545,8 +500,11 @@ def wait_for_server_ready(proc):
 
 def quit_server(proc):
    print("Sending quit command...")
-   proc.stdin.write("quit\n".encode('utf-8'))
-   proc.stdin.flush()
+   try:
+      send_server_command("quit")
+   except Exception as e:
+      print(f"Error sending quit command: {e}")
+
    print("Command sent! Waiting for server to quit...")
    for line in iter(proc.stdout.readline,''):
       decoded_line = line.decode('utf-8').strip()
@@ -622,12 +580,16 @@ def extract_username(line):
 def run_server_in_thread():
    global PROC, SERVER_STATUS
    try:
+      add_to_log("Launching Project Zomboid server process...")
       proc = spawn_server()
       PROC = proc
+      add_to_log("Server process started, waiting for server to become ready...")
       wait_for_server_ready(proc)
+      add_to_log("Server is ready, monitoring output...")
       monitor_server(proc)
    except Exception as e:
       print(f"Server error: {e}")
+      add_to_log(f"Server error: {e}")
       SERVER_STATUS = "Error"
    finally:
       # Clean up when server stops
@@ -667,8 +629,7 @@ def main():
       if PROC and PROC.poll() is None:
          try:
             print("Stopping game server...")
-            PROC.stdin.write("quit\n".encode('utf-8'))
-            PROC.stdin.flush()
+            send_server_command("quit")
             PROC.wait(timeout=10)
          except Exception as e:
             print(f"Error stopping game server: {e}")
@@ -802,11 +763,10 @@ def validate_mod_data(workshop_ids, mod_ids):
 
    return errors
 
-def save_player_database():
+def save_player_database_local():
    """Save the player database to file"""
    try:
-      with open(PLAYER_DB_FILE, 'w') as f:
-         json.dump(PLAYER_DATABASE, f, indent=4)
+      save_player_database(PLAYER_DATABASE)
    except Exception as e:
       print(f"Error saving player database: {e}")
 
@@ -816,32 +776,33 @@ def update_player_status(username, online=True):
 
    timestamp = datetime.now().isoformat()
 
-   # Update memory (for current session)
+   # Update memory (for current session) - includes ephemeral data
    if username not in USERS:
-      USERS[username] = {"online": online, "last_seen": timestamp}
+      USERS[username] = {"online": online, "last_seen": timestamp, "is_admin": False}
    else:
       USERS[username]["online"] = online
       USERS[username]["last_seen"] = timestamp
+      # Preserve is_admin status if it exists, otherwise default to False
+      if "is_admin" not in USERS[username]:
+         USERS[username]["is_admin"] = False
 
-   # Update persistent database
+   # Update persistent database - only non-ephemeral data
    if username not in PLAYER_DATABASE:
       PLAYER_DATABASE[username] = {
          "first_seen": timestamp,
          "last_seen": timestamp,
-         "online": online
+         "allow_admin": False
       }
    else:
       PLAYER_DATABASE[username]["last_seen"] = timestamp
-      PLAYER_DATABASE[username]["online"] = online
 
-   save_player_database()
+   save_player_database_local()
    add_to_log(f"Player {username} {'connected' if online else 'disconnected'}")
 
-def save_locations_database():
+def save_locations_database_local():
    """Save the locations database to file"""
    try:
-      with open(LOCATIONS_DB_FILE, 'w') as f:
-         json.dump(LOCATIONS_DATABASE, f, indent=4)
+      save_locations_database(LOCATIONS_DATABASE)
    except Exception as e:
       print(f"Error saving locations database: {e}")
 
@@ -855,7 +816,7 @@ def add_location_to_database(name, coordinates, description=""):
       "created": datetime.now().isoformat()
    }
 
-   save_locations_database()
+   save_locations_database_local()
    add_to_log(f"Added location '{name}' at coordinates {coordinates}")
 
 @FLASK_APP.route('/api/locations/edit', methods=['POST'])
@@ -893,7 +854,7 @@ def api_edit_location():
          LOCATIONS_DATABASE[old_name] = location_data
          add_to_log(f"Updated location '{old_name}' coordinates to {coordinates}")
 
-      save_locations_database()
+      save_locations_database_local()
 
       return jsonify({'message': f'Location updated successfully'})
    except Exception as e:
@@ -913,9 +874,103 @@ def api_delete_location():
          return jsonify({'error': f'Location "{name}" not found'}), 404
 
       del LOCATIONS_DATABASE[name]
-      save_locations_database()
+      save_locations_database_local()
       add_to_log(f"Deleted location '{name}'")
 
       return jsonify({'message': f'Location "{name}" deleted successfully'})
    except Exception as e:
       return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route('/api/players/grant-admin', methods=['POST'])
+def api_grant_admin():
+   """Grant admin permissions to a player"""
+   try:
+      data = request.get_json()
+      username = data.get('username', '').strip()
+
+      if not username:
+         return jsonify({'error': 'Username is required'}), 400
+
+      if username not in PLAYER_DATABASE:
+         return jsonify({'error': f'Player "{username}" not found'}), 404
+
+      # Check if admin management is allowed for this player
+      if not PLAYER_DATABASE[username].get('allow_admin', False):
+         return jsonify({'error': f'Admin management not enabled for "{username}"'}), 403
+
+      # Check if player is currently online
+      if username not in USERS or not USERS[username].get('online', False):
+         return jsonify({'error': f'Player "{username}" is not currently online'}), 400
+
+      # Check if server is running
+      if SERVER_STATUS != 'Running' or not PROC:
+         return jsonify({'error': 'Server must be running to grant admin permissions'}), 400      # Send the actual admin command to the server
+      command = f'setaccesslevel "{username}" admin'
+      try:
+         send_server_command(command)
+
+         # Set admin status in memory
+         USERS[username]['is_admin'] = True
+
+         return jsonify({'message': f'Admin status granted to "{username}"'})
+      except Exception as e:
+         return jsonify({'error': f'Failed to send admin command: {str(e)}'}), 500
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route('/api/players/remove-admin', methods=['POST'])
+def api_remove_admin():
+   """Remove admin permissions from a player"""
+   try:
+      data = request.get_json()
+      username = data.get('username', '').strip()
+
+      if not username:
+         return jsonify({'error': 'Username is required'}), 400
+
+      if username not in PLAYER_DATABASE:
+         return jsonify({'error': f'Player "{username}" not found'}), 404
+
+      # Check if admin management is allowed for this player
+      if not PLAYER_DATABASE[username].get('allow_admin', False):
+         return jsonify({'error': f'Admin management not enabled for "{username}"'}), 403
+
+      # Check if player is currently online
+      if username not in USERS or not USERS[username].get('online', False):
+         return jsonify({'error': f'Player "{username}" is not currently online'}), 400
+
+      # Check if server is running
+      if SERVER_STATUS != 'Running' or not PROC:
+         return jsonify({'error': 'Server must be running to remove admin permissions'}), 400      # Send the actual remove admin command to the server
+      command = f'setaccesslevel "{username}" none'
+      try:
+         send_server_command(command)
+
+         # Set admin status in memory
+         USERS[username]['is_admin'] = False
+
+         return jsonify({'message': f'Admin status removed from "{username}"'})
+      except Exception as e:
+         return jsonify({'error': f'Failed to send remove admin command: {str(e)}'}), 500
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500
+
+def send_server_command(command):
+   """Send a command to the Project Zomboid server process"""
+   global PROC
+
+   if not PROC or PROC.poll() is not None:
+      raise Exception("Server is not running")
+
+   try:
+      # Ensure command ends with newline
+      if not command.endswith('\n'):
+         command += '\n'
+
+      PROC.stdin.write(command.encode('utf-8'))
+      PROC.stdin.flush()
+      add_to_log(f"Sent command to server: {command.strip()}")
+      return True
+   except Exception as e:
+      add_to_log(f"Failed to send command '{command.strip()}': {e}")
+      raise e

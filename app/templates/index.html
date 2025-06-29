@@ -64,6 +64,42 @@
             background: linear-gradient(45deg, #5a6fd8, #6c4298);
             color: white;
         }
+
+        /* Ensure teleport sections display side by side */
+        #teleportControls {
+            margin-top: 2rem;
+        }
+
+        @media (min-width: 768px) {
+            #teleportControls {
+                display: flex !important;
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+            #teleportControls > .col-md-6 {
+                flex: 1 1 calc(50% - 0.5rem);
+                max-width: calc(50% - 0.5rem);
+                margin-bottom: 1rem;
+            }
+        }
+
+        /* Make sure cards don't overflow */
+        .card {
+            height: 100%;
+            word-wrap: break-word;
+        }
+
+        /* Prevent form elements from making cards too wide */
+        .form-select, .form-control {
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        /* Ensure teleport card headers are aligned */
+        #teleportControls .card-header h4 {
+            font-size: 1.1rem;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -149,19 +185,39 @@
                                 {% if users %}
                                     <div class="list-group">
                                         {% for username, user_data in users.items() %}
-                                            <div class="list-group-item d-flex justify-content-between align-items-center member-item" data-username="{{ username }}">
-                                                <span class="{% if user_data.online %}player-online{% else %}player-offline{% endif %}">
-                                                    <i class="fas fa-{% if user_data.online %}circle text-success{% else %}circle text-muted{% endif %}"></i>
-                                                    {{ username }}
-                                                </span>
-                                                <div class="text-end">
-                                                    {% if user_data.online %}
-                                                        <small class="text-success d-block">Online</small>
-                                                    {% else %}
-                                                        <small class="text-muted d-block">Offline</small>
-                                                    {% endif %}
-                                                    {% if user_data.get('last_seen') %}
-                                                        <small class="text-muted">{{ user_data.last_seen[:16] if user_data.last_seen|length > 16 else user_data.last_seen }}</small>
+                                            <div class="list-group-item member-item" data-username="{{ username }}">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <span class="{% if user_data.online %}player-online{% else %}player-offline{% endif %}">
+                                                            <i class="fas fa-{% if user_data.online %}circle text-success{% else %}circle text-muted{% endif %}"></i>
+                                                            {{ username }}
+                                                            {% if user_data.get('is_admin') %}
+                                                                <i class="fas fa-crown text-warning ms-1" title="Admin"></i>
+                                                            {% endif %}
+                                                        </span>
+                                                    </div>
+                                                    <div class="text-end">
+                                                        {% if user_data.online %}
+                                                            <small class="text-success d-block">Online</small>
+                                                        {% else %}
+                                                            <small class="text-muted d-block">Offline</small>
+                                                        {% endif %}
+                                                        {% if user_data.get('last_seen') %}
+                                                            <small class="text-muted">{{ user_data.last_seen[:16] if user_data.last_seen|length > 16 else user_data.last_seen }}</small>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                <div class="mt-2">
+                                                    {% if user_data.get('allow_admin') and user_data.online and server_status == 'Running' %}
+                                                        {% if user_data.get('is_admin') %}
+                                                            <button class="btn btn-sm btn-danger" onclick="removeAdmin('{{ username }}')" title="Remove Admin">
+                                                                <i class="fas fa-user-minus"></i> Remove Admin
+                                                            </button>
+                                                        {% else %}
+                                                            <button class="btn btn-sm btn-success" onclick="grantAdmin('{{ username }}')" title="Grant Admin">
+                                                                <i class="fas fa-user-plus"></i> Grant Admin
+                                                            </button>
+                                                        {% endif %}
                                                     {% endif %}
                                                 </div>
                                             </div>
@@ -187,14 +243,6 @@
                                         {% if server_status != 'Running' %}disabled{% endif %}>
                                     <i class="fas fa-save"></i> Save World
                                 </button>
-                                <button id="announceBtn" class="btn btn-warning" onclick="sendCommand('servermsg &quot;Server restart in 5 minutes!&quot;')"
-                                        {% if server_status != 'Running' %}disabled{% endif %}>
-                                    <i class="fas fa-exclamation-triangle"></i> Announce Restart
-                                </button>
-                                <button id="listPlayersBtn" class="btn btn-secondary" onclick="sendCommand('players')"
-                                        {% if server_status != 'Running' %}disabled{% endif %}>
-                                    <i class="fas fa-list"></i> List Players
-                                </button>
                                 <a href="{{ url_for('mods') }}" class="btn btn-purple">
                                     <i class="fas fa-puzzle-piece"></i> Manage Mods
                                 </a>
@@ -205,15 +253,27 @@
                                     <i class="fas fa-power-off"></i> Shutdown Panel
                                 </a>
                             </div>
+
+                            <hr>
+
+                            <h6><i class="fas fa-bullhorn"></i> Server Announcement</h6>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="announcementInput"
+                                       placeholder="Enter server announcement..."
+                                       {% if server_status != 'Running' %}disabled{% endif %}>
+                                <button class="btn btn-warning" onclick="sendAnnouncement()"
+                                        {% if server_status != 'Running' %}disabled{% endif %}>
+                                    <i class="fas fa-bullhorn"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Teleport Controls -->
-            {% if players %}
-            <div class="row">
-                <div class="col-lg-6 mb-4">
+            <div class="row" id="teleportControls" {% if not players or server_status != 'Running' %}style="display: none;"{% endif %}>
+                <div class="col-md-6 mb-4">
                     <div class="card">
                         <div class="card-header">
                             <h4><i class="fas fa-exchange-alt"></i> Player to Player Teleport</h4>
@@ -222,32 +282,39 @@
                             <div class="row">
                                 <div class="col-md-6">
                                     <label class="form-label">Teleport Player:</label>
-                                    <select class="form-select" id="fromPlayer">
-                                        {% for username in players %}
-                                            <option value="{{ username }}">{{ username }}</option>
-                                        {% endfor %}
+                                    <select class="form-select" id="fromPlayer" onchange="updateToPlayerOptions()">
+                                        <option value="">-- Choose player --</option>
+                                        {% if players %}
+                                            {% for username in players %}
+                                                <option value="{{ username }}">{{ username }}</option>
+                                            {% endfor %}
+                                        {% endif %}
                                     </select>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">To Player:</label>
-                                    <select class="form-select" id="toPlayer">
-                                        {% for username in players %}
-                                            <option value="{{ username }}">{{ username }}</option>
-                                        {% endfor %}
+                                    <select class="form-select" id="toPlayer" onchange="updateTeleportButtonStates()">
+                                        <option value="">-- Choose player --</option>
+                                        {% if players %}
+                                            {% for username in players %}
+                                                <option value="{{ username }}">{{ username }}</option>
+                                            {% endfor %}
+                                        {% endif %}
                                     </select>
                                 </div>
                             </div>
                             <div class="text-center mt-3">
-                                <button class="btn btn-teleport" onclick="teleportPlayerToPlayer()"
-                                        {% if server_status != 'Running' %}disabled{% endif %}>
+                                <button class="btn btn-teleport" onclick="teleportPlayerToPlayer()" id="playerToPlayerBtn"
+                                        {% if server_status != 'Running' or (players and players|length < 2) or not players %}disabled{% endif %}>
                                     <i class="fas fa-magic"></i> Teleport
                                 </button>
+                                <small class="text-muted mt-2" id="playerToPlayerMessage" style="display: none;"></small>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="col-lg-6 mb-4">
+                <div class="col-md-6 mb-4">
                     <div class="card">
                         <div class="card-header">
                             <h4><i class="fas fa-map-marker-alt"></i> Player to Location Teleport</h4>
@@ -256,32 +323,38 @@
                             <div class="row">
                                 <div class="col-md-6">
                                     <label class="form-label">Player:</label>
-                                    <select class="form-select" id="playerToLocation">
-                                        {% for username in players %}
-                                            <option value="{{ username }}">{{ username }}</option>
-                                        {% endfor %}
+                                    <select class="form-select" id="playerToLocation" onchange="updateTeleportButtonStates()">
+                                        <option value="">-- Choose player --</option>
+                                        {% if players %}
+                                            {% for username in players %}
+                                                <option value="{{ username }}">{{ username }}</option>
+                                            {% endfor %}
+                                        {% endif %}
                                     </select>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Location:</label>
-                                    <select class="form-select" id="targetLocation">
-                                        {% for location_name in locations.keys() %}
-                                            <option value="{{ location_name }}">{{ location_name }}</option>
-                                        {% endfor %}
+                                    <select class="form-select" id="targetLocation" onchange="updateTeleportButtonStates()">
+                                        <option value="">-- Choose location --</option>
+                                        {% if locations %}
+                                            {% for location_name in locations.keys() %}
+                                                <option value="{{ location_name }}">{{ location_name }}</option>
+                                            {% endfor %}
+                                        {% endif %}
                                     </select>
                                 </div>
                             </div>
                             <div class="text-center mt-3">
-                                <button class="btn btn-teleport" onclick="teleportPlayerToLocation()"
-                                        {% if server_status != 'Running' %}disabled{% endif %}>
+                                <button class="btn btn-teleport" onclick="teleportPlayerToLocation()" id="playerToLocationBtn"
+                                        {% if server_status != 'Running' or (players and players|length < 1) or not players %}disabled{% endif %}>
                                     <i class="fas fa-magic"></i> Teleport
                                 </button>
+                                <small class="text-muted mt-2" id="playerToLocationMessage" style="display: none;"></small>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            {% endif %}
 
             <!-- Server Log -->
             <div class="row">
@@ -307,9 +380,11 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let lastLogUpdate = 0;
+        let currentServerStatus = '{{ server_status }}'; // Track current server status
+        let lastOnlinePlayersHash = ''; // Track changes to online players
 
-        // Auto-refresh status every 3 seconds for better real-time updates
-        setInterval(refreshStatus, 3000);
+        // Auto-refresh status every 1 second for better real-time updates
+        setInterval(refreshStatus, 1000);
 
         // Initial load
         refreshStatus();
@@ -325,16 +400,27 @@
                     // Update members list
                     updateMembersList(data.users);
 
-                    // Update log if there are new entries
-                    if (data.log_lines && data.log_lines.length > lastLogUpdate) {
-                        updateLog(data.log_lines);
-                        lastLogUpdate = data.log_lines.length;
+                    // Update log - always update during server startup/changes
+                    if (data.log_lines) {
+                        // Always update log if server status is Starting, Stopping, or if we have significantly different log count
+                        const shouldUpdateLog = currentServerStatus === 'Starting' ||
+                                              currentServerStatus === 'Stopping' ||
+                                              data.log_lines.length !== lastLogUpdate ||
+                                              Math.abs(data.log_lines.length - lastLogUpdate) > 1; // Handle log resets
+
+                        if (shouldUpdateLog) {
+                            updateLog(data.log_lines);
+                            lastLogUpdate = data.log_lines.length;
+                        }
                     }
                 })
                 .catch(error => console.error('Error fetching status:', error));
         }
 
         function updateServerStatus(status) {
+            const statusChanged = currentServerStatus !== status;
+            currentServerStatus = status; // Update global status variable
+
             const statusElement = document.querySelector('.server-status');
             statusElement.className = `server-status status-${status.toLowerCase()}`;
             statusElement.innerHTML = `<i class="fas fa-circle"></i> ${status}`;
@@ -348,8 +434,9 @@
 
             // Quick action buttons
             const saveWorldBtn = document.getElementById('saveWorldBtn');
-            const announceBtn = document.getElementById('announceBtn');
             const listPlayersBtn = document.getElementById('listPlayersBtn');
+            const announcementInput = document.getElementById('announcementInput');
+            const announceBtn = document.querySelector('button[onclick="sendAnnouncement()"]');
 
             const isRunning = status === 'Running';
             const isStopped = status === 'Stopped';
@@ -362,13 +449,18 @@
 
             // Quick action buttons
             if (saveWorldBtn) saveWorldBtn.disabled = !isRunning;
-            if (announceBtn) announceBtn.disabled = !isRunning;
             if (listPlayersBtn) listPlayersBtn.disabled = !isRunning;
+            if (announcementInput) announcementInput.disabled = !isRunning;
+            if (announceBtn) announceBtn.disabled = !isRunning;
 
-            // Update all teleport buttons
-            document.querySelectorAll('.btn-teleport').forEach(btn => {
-                btn.disabled = !isRunning;
-            });
+            // Only update teleport controls if server status changed
+            if (statusChanged) {
+                // Update teleport sections visibility based on server status
+                const onlinePlayers = Object.entries(window.cachedUsers || {})
+                    .filter(([username, userData]) => userData.online)
+                    .map(([username]) => username);
+                updateTeleportSections(onlinePlayers);
+            }
         }
 
         function updateLog(logLines) {
@@ -389,6 +481,9 @@
         }
 
         function startServer() {
+            // Reset log tracking to ensure we see startup logs
+            lastLogUpdate = 0;
+
             fetch('/api/server/start', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
@@ -397,7 +492,8 @@
                     } else {
                         showAlert(data.message, 'success');
                     }
-                    setTimeout(refreshStatus, 1000);
+                    // Immediately refresh to start showing logs
+                    refreshStatus();
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -458,9 +554,45 @@
             });
         }
 
+        function sendAnnouncement() {
+            const announcementText = document.getElementById('announcementInput').value.trim();
+            if (!announcementText) {
+                showAlert('Please enter an announcement message', 'warning');
+                return;
+            }
+
+            // Escape quotes and format as servermsg command
+            const escapedText = announcementText.replace(/"/g, '\\"');
+            const command = `servermsg "${escapedText}"`;
+
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert('Announcement sent to all players', 'success');
+                    document.getElementById('announcementInput').value = '';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to send announcement', 'danger');
+            });
+        }
+
         function teleportPlayerToPlayer() {
             const fromPlayer = document.getElementById('fromPlayer').value;
             const toPlayer = document.getElementById('toPlayer').value;
+
+            if (!fromPlayer || !toPlayer) {
+                showAlert('Please select both players for teleportation', 'warning');
+                return;
+            }
 
             if (fromPlayer === toPlayer) {
                 showAlert('Cannot teleport player to themselves', 'warning');
@@ -474,7 +606,129 @@
             const player = document.getElementById('playerToLocation').value;
             const location = document.getElementById('targetLocation').value;
 
+            if (!player || !location) {
+                showAlert('Please select both player and location for teleportation', 'warning');
+                return;
+            }
+
             window.location.href = `/location_tp/${location}/${player}`;
+        }
+
+        function updateToPlayerOptions() {
+            const fromPlayerSelect = document.getElementById('fromPlayer');
+            const toPlayerSelect = document.getElementById('toPlayer');
+
+            // Check if elements exist
+            if (!fromPlayerSelect || !toPlayerSelect) {
+                return;
+            }
+
+            const selectedFromPlayer = fromPlayerSelect.value;
+
+            // Store current selection in toPlayer
+            const currentToPlayer = toPlayerSelect.value;
+
+            // Clear toPlayer options
+            toPlayerSelect.innerHTML = '<option value="">-- Choose player --</option>';
+
+            // Get all online players from the fromPlayer dropdown
+            const allPlayers = [];
+            for (let i = 1; i < fromPlayerSelect.options.length; i++) { // Skip first "Choose player" option
+                allPlayers.push(fromPlayerSelect.options[i].value);
+            }
+
+            // Add all options except the selected fromPlayer
+            allPlayers.forEach(player => {
+                if (player !== selectedFromPlayer) {
+                    const option = new Option(player, player);
+                    if (player === currentToPlayer && player !== selectedFromPlayer) {
+                        option.selected = true;
+                    }
+                    toPlayerSelect.appendChild(option);
+                }
+            });
+
+            // Don't call updateTeleportButtonStates here - let updatePlayerDropdowns handle it
+            // Manual dropdown changes will still call updateTeleportButtonStates via onchange events
+        }        function updateTeleportButtonStates() {
+            // Check if teleport elements exist (they might be hidden)
+            const fromPlayerSelect = document.getElementById('fromPlayer');
+            const toPlayerSelect = document.getElementById('toPlayer');
+            const playerToLocationSelect = document.getElementById('playerToLocation');
+            const targetLocationSelect = document.getElementById('targetLocation');
+
+            // If any key element is missing, skip the update
+            if (!fromPlayerSelect || !toPlayerSelect || !playerToLocationSelect || !targetLocationSelect) {
+                return;
+            }
+
+            const fromPlayer = fromPlayerSelect.value;
+            const toPlayer = toPlayerSelect.value;
+            const playerToLocation = playerToLocationSelect.value;
+            const targetLocation = targetLocationSelect.value;
+            const serverRunning = currentServerStatus === 'Running';
+
+            // Get current online player count from cached users data (more reliable than dropdown count)
+            const onlinePlayers = window.cachedUsers ?
+                Object.entries(window.cachedUsers).filter(([username, userData]) => userData.online) : [];
+            const onlinePlayerCount = onlinePlayers.length;
+            const locationCount = targetLocationSelect.options.length - 1; // -1 for default option
+
+            // Player to player button and message
+            const playerToPlayerBtn = document.getElementById('playerToPlayerBtn');
+            const playerToPlayerMessage = document.getElementById('playerToPlayerMessage');
+            if (playerToPlayerBtn && playerToPlayerMessage) {
+                const canTeleportPlayers = serverRunning && fromPlayer && toPlayer && fromPlayer !== toPlayer && onlinePlayerCount >= 2;
+                playerToPlayerBtn.disabled = !canTeleportPlayers;
+
+                // Show message if not enough players or server not running
+                if (!serverRunning) {
+                    playerToPlayerMessage.style.display = 'block';
+                    playerToPlayerMessage.classList.add('d-block');
+                    playerToPlayerMessage.textContent = 'Server must be running';
+                } else if (onlinePlayerCount < 2) {
+                    playerToPlayerMessage.style.display = 'block';
+                    playerToPlayerMessage.classList.add('d-block');
+                    playerToPlayerMessage.textContent = 'Need at least 2 online players';
+                } else {
+                    playerToPlayerMessage.style.display = 'none';
+                    playerToPlayerMessage.classList.remove('d-block');
+                }
+            }
+
+            // Player to location button and message
+            const playerToLocationBtn = document.getElementById('playerToLocationBtn');
+            const playerToLocationMessage = document.getElementById('playerToLocationMessage');
+            if (playerToLocationBtn && playerToLocationMessage) {
+                const canTeleportToLocation = serverRunning && playerToLocation && targetLocation && onlinePlayerCount >= 1 && locationCount >= 1;
+                playerToLocationBtn.disabled = !canTeleportToLocation;
+
+                // Show message based on what's missing
+                if (!serverRunning) {
+                    playerToLocationMessage.style.display = 'block';
+                    playerToLocationMessage.classList.add('d-block');
+                    playerToLocationMessage.textContent = 'Server must be running';
+                } else if (onlinePlayerCount < 1) {
+                    playerToLocationMessage.style.display = 'block';
+                    playerToLocationMessage.classList.add('d-block');
+                    playerToLocationMessage.textContent = 'No online players';
+                } else if (locationCount < 1) {
+                    playerToLocationMessage.style.display = 'block';
+                    playerToLocationMessage.classList.add('d-block');
+                    playerToLocationMessage.textContent = 'No locations available';
+                } else if (!playerToLocation) {
+                    playerToLocationMessage.style.display = 'block';
+                    playerToLocationMessage.classList.add('d-block');
+                    playerToLocationMessage.textContent = 'Please select a player';
+                } else if (!targetLocation) {
+                    playerToLocationMessage.style.display = 'block';
+                    playerToLocationMessage.classList.add('d-block');
+                    playerToLocationMessage.textContent = 'Please select a location';
+                } else {
+                    playerToLocationMessage.style.display = 'none';
+                    playerToLocationMessage.classList.remove('d-block');
+                }
+            }
         }
 
         function showAlert(message, type) {
@@ -502,13 +756,36 @@
         }
 
         function updateMembersList(users) {
+            // Cache users data for other functions to use
+            window.cachedUsers = users;
+
             const membersList = document.getElementById('membersList');
             const memberCount = document.getElementById('memberCount');
 
             if (!users || Object.keys(users).length === 0) {
                 membersList.innerHTML = '<p class="text-muted text-center">No players have connected yet</p>';
                 memberCount.textContent = '0';
+
+                // Check if online players changed
+                const newOnlinePlayersHash = '';
+                if (lastOnlinePlayersHash !== newOnlinePlayersHash) {
+                    lastOnlinePlayersHash = newOnlinePlayersHash;
+                    updateTeleportSections([]);
+                }
                 return;
+            }
+
+            // Get online players
+            const onlinePlayers = Object.entries(users)
+                .filter(([username, userData]) => userData.online)
+                .map(([username]) => username);
+
+            // Create a hash of online players to detect changes
+            const newOnlinePlayersHash = onlinePlayers.sort().join(',');
+            const onlinePlayersChanged = lastOnlinePlayersHash !== newOnlinePlayersHash;
+
+            if (onlinePlayersChanged) {
+                lastOnlinePlayersHash = newOnlinePlayersHash;
             }
 
             // Sort users: online first, then by username
@@ -529,17 +806,35 @@
                 const isOnline = userData.online || false;
                 const lastSeen = userData.last_seen || '';
                 const displayTime = lastSeen.length > 16 ? lastSeen.substring(0, 16) : lastSeen;
+                const allowAdmin = userData.allow_admin || false;
+                const isAdmin = userData.is_admin || false;
 
                 html += `
-                    <div class="list-group-item d-flex justify-content-between align-items-center member-item" data-username="${username}">
-                        <span class="${isOnline ? 'player-online' : 'player-offline'}">
-                            <i class="fas fa-circle ${isOnline ? 'text-success' : 'text-muted'}"></i>
-                            ${username}
-                        </span>
-                        <div class="text-end">
-                            <small class="${isOnline ? 'text-success' : 'text-muted'} d-block">${isOnline ? 'Online' : 'Offline'}</small>
-                            ${lastSeen ? `<small class="text-muted">${displayTime}</small>` : ''}
+                    <div class="list-group-item member-item" data-username="${username}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="${isOnline ? 'player-online' : 'player-offline'}">
+                                    <i class="fas fa-circle ${isOnline ? 'text-success' : 'text-muted'}"></i>
+                                    ${username}
+                                    ${isAdmin ? '<i class="fas fa-crown text-warning ms-1" title="Admin"></i>' : ''}
+                                </span>
+                            </div>
+                            <div class="text-end">
+                                <small class="${isOnline ? 'text-success' : 'text-muted'} d-block">${isOnline ? 'Online' : 'Offline'}</small>
+                                ${lastSeen ? `<small class="text-muted">${displayTime}</small>` : ''}
+                            </div>
                         </div>
+                        ${allowAdmin && isOnline && currentServerStatus === 'Running' ? `
+                        <div class="mt-2">
+                            ${isAdmin ?
+                                `<button class="btn btn-sm btn-danger" onclick="removeAdmin('${username}')" title="Remove Admin">
+                                    <i class="fas fa-user-minus"></i> Remove Admin
+                                </button>` :
+                                `<button class="btn btn-sm btn-success" onclick="grantAdmin('${username}')" title="Grant Admin">
+                                    <i class="fas fa-user-plus"></i> Grant Admin
+                                </button>`
+                            }
+                        </div>` : ''}
                     </div>
                 `;
             });
@@ -547,12 +842,152 @@
 
             membersList.innerHTML = html;
             memberCount.textContent = Object.keys(users).length;
+
+            // Only update teleport sections if online players changed
+            if (onlinePlayersChanged) {
+                updateTeleportSections(onlinePlayers);
+            }
+        }
+
+        function updateTeleportSections(onlinePlayers) {
+            // Find the teleport controls container
+            const teleportContainer = document.getElementById('teleportControls');
+
+            if (teleportContainer) {
+                // Show teleport controls only if server is running AND there are online players
+                // Also check if we have at least one location for Player to Location teleport
+                const hasLocations = document.getElementById('targetLocation') &&
+                                   document.getElementById('targetLocation').options.length > 1; // -1 for default option
+
+                if (onlinePlayers.length > 0 && currentServerStatus === 'Running') {
+                    teleportContainer.style.display = 'block';
+                } else {
+                    teleportContainer.style.display = 'none';
+                    return;
+                }
+            }
+
+            // Update dropdowns
+            updatePlayerDropdowns(onlinePlayers);
+        }
+
+        function updatePlayerDropdowns(onlinePlayers) {
+            const fromPlayerSelect = document.getElementById('fromPlayer');
+            const toPlayerSelect = document.getElementById('toPlayer');
+            const playerToLocationSelect = document.getElementById('playerToLocation');
+
+            if (!fromPlayerSelect || !toPlayerSelect || !playerToLocationSelect) return;
+
+            // Store current selections
+            const currentFromPlayer = fromPlayerSelect.value;
+            const currentToPlayer = toPlayerSelect.value;
+            const currentPlayerToLocation = playerToLocationSelect.value;
+
+            // Update fromPlayer dropdown
+            fromPlayerSelect.innerHTML = '<option value="">-- Choose player --</option>';
+            onlinePlayers.forEach(player => {
+                const option = new Option(player, player);
+                if (player === currentFromPlayer) option.selected = true;
+                fromPlayerSelect.appendChild(option);
+            });
+
+            // Update playerToLocation dropdown
+            playerToLocationSelect.innerHTML = '<option value="">-- Choose player --</option>';
+            onlinePlayers.forEach(player => {
+                const option = new Option(player, player);
+                if (player === currentPlayerToLocation) option.selected = true;
+                playerToLocationSelect.appendChild(option);
+            });
+
+            // Update toPlayer dropdown (excluding selected fromPlayer) - call this AFTER fromPlayer is populated
+            updateToPlayerOptions();
+
+            // Update button states - call this AFTER all dropdowns are updated
+            updateTeleportButtonStates();
+        }
+
+        // Admin management functions
+        function grantAdmin(username) {
+            if (currentServerStatus !== 'Running') {
+                showAlert('Server must be running to manage admin permissions', 'warning');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to grant admin permissions to ${username}?`)) {
+                return;
+            }
+
+            fetch('/api/players/grant-admin', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: username
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert(data.message, 'success');
+                    // Refresh the status to update the members list
+                    refreshStatus();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to grant admin permissions', 'danger');
+            });
+        }
+
+        function removeAdmin(username) {
+            if (currentServerStatus !== 'Running') {
+                showAlert('Server must be running to manage admin permissions', 'warning');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to remove admin permissions from ${username}?`)) {
+                return;
+            }
+
+            fetch('/api/players/remove-admin', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: username
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert(data.message, 'success');
+                    // Refresh the status to update the members list
+                    refreshStatus();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Failed to remove admin permissions', 'danger');
+            });
         }
 
         // Allow Enter key to send commands
         document.getElementById('commandInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 sendCommand();
+            }
+        });
+
+        // Allow Enter key to send announcements
+        document.getElementById('announcementInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendAnnouncement();
             }
         });
     </script>
