@@ -16,14 +16,6 @@
         "user_logged_in": "ConnectionManager: [fully-connected]",
         "user_logged_out": "ConnectionManager: [disconnect]"
     },
-    "locations": {
-        "Base 1": "11914,6725,0",
-        "West Point": "11914,6725,0",
-        "Muldraugh": "10635,9845,0",
-        "Riverside": "6509,5059,0",
-        "Rosewood": "8108,11643,0",
-        "Valley Station": "12611,5521,0"
-    },
     "commands": {
         "quick_commands": [
             {"name": "Save World", "command": "save", "icon": "fas fa-save", "style": "btn-info"},

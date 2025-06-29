@@ -165,7 +165,7 @@ The panel is built with:
 │       └── mods.html       # Mod manager template
 ├── main.py                 # Main entry point
 ├── config.json             # Server configuration
-├── mod_db.json             # Mod database
+├── mods_db.json             # Mod database
 ├── requirements.txt        # Python dependencies
 └── README.md              # This file
 ```

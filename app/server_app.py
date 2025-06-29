@@ -33,14 +33,39 @@ ZOMBOID_SERVER_QUIT_INDICATOR = CONFIG['indicators']['server_quit']
 ZOMBOID_USER_LOGGED_IN_INDICATOR = CONFIG['indicators']['user_logged_in']
 ZOMBOID_USER_LOGGED_OUT_INDICATOR = CONFIG['indicators']['user_logged_out']
 
-LOCATIONS = CONFIG['locations']
-
 USERS = {}
 # {
    # "user1": {
    #    "online": True,
+   #    "last_seen": "timestamp",
+   #    "first_seen": "timestamp"
    # }
 # }
+
+# Load player database
+PLAYER_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'players_db.json')
+try:
+    with open(PLAYER_DB_FILE, 'r') as f:
+        PLAYER_DATABASE = json.load(f)
+except FileNotFoundError:
+    PLAYER_DATABASE = {}
+    # Create the file
+    with open(PLAYER_DB_FILE, 'w') as f:
+        json.dump(PLAYER_DATABASE, f, indent=4)
+
+# Load locations database
+LOCATIONS_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'locations_db.json')
+try:
+    with open(LOCATIONS_DB_FILE, 'r') as f:
+        LOCATIONS_DATABASE = json.load(f)
+except FileNotFoundError:
+    LOCATIONS_DATABASE = {}
+    # Create the file
+    with open(LOCATIONS_DB_FILE, 'w') as f:
+        json.dump(LOCATIONS_DATABASE, f, indent=4)
+
+# Load mods database path
+MODS_DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'mods_db.json')
 
 # Configure Flask, add blueprints, and reduce logging
 FLASK_APP = Flask(__name__)
@@ -50,22 +75,48 @@ WEKZEUG_LOG.disabled = True
 
 @FLASK_APP.route("/")
 def index():
+   # Merge current session users with persistent database
+   all_players = dict(PLAYER_DATABASE)
+   for username, user_data in USERS.items():
+      if username in all_players:
+         all_players[username].update(user_data)
+      else:
+         all_players[username] = user_data
+
    table_data = {
       "player_tp": [],
       "location_tp": []
    }
-   for user_name, user_data in USERS.items():
-      table_data["player_tp"].append({"location": user_name, "players": [player for player in USERS.keys() if player != user_name]})
 
-   for location_name in LOCATIONS.keys():
-      table_data["location_tp"].append({"location": location_name, "players": USERS.keys()})
-   return render_template("index.html", table_rows=table_data, players = USERS.keys(), server_status=SERVER_STATUS, users=USERS)
+   # Use online players for teleport options
+   online_players = [name for name, data in all_players.items() if data.get('online', False)]
+
+   # Use only database locations (config locations have been migrated)
+   all_locations = {}
+   for name, data in LOCATIONS_DATABASE.items():
+      all_locations[name] = data["coordinates"]
+
+   for user_name in online_players:
+      table_data["player_tp"].append({"location": user_name, "players": [player for player in online_players if player != user_name]})
+
+   for location_name in all_locations.keys():
+      table_data["location_tp"].append({"location": location_name, "players": online_players})
+
+   return render_template("index.html", table_rows=table_data, players=online_players, server_status=SERVER_STATUS, users=all_players, locations=all_locations)
 
 @FLASK_APP.route('/api/status')
 def api_status():
+   # Merge current session users with persistent database for API
+   all_players = dict(PLAYER_DATABASE)
+   for username, user_data in USERS.items():
+      if username in all_players:
+         all_players[username].update(user_data)
+      else:
+         all_players[username] = user_data
+
    return jsonify({
       'server_status': SERVER_STATUS,
-      'users': USERS,
+      'users': all_players,
       'log_lines': SERVER_LOG[-50:] if SERVER_LOG else []  # Last 50 lines
    })
 
@@ -144,12 +195,14 @@ def location_tp(location, player):
       flash('Server is not running!', 'error')
       return redirect(url_for('index'))
 
-   if location not in LOCATIONS:
+   # Check if location exists in database
+   if location not in LOCATIONS_DATABASE:
       flash(f'Unknown location: {location}', 'error')
       return redirect(url_for('index'))
 
    try:
-      command = f'tpto "{player}" "{LOCATIONS[location]}"'
+      coordinates = LOCATIONS_DATABASE[location]["coordinates"]
+      command = f'tpto "{player}" "{coordinates}"'
       PROC.stdin.write(f"{command}\n".encode('utf-8'))
       PROC.stdin.flush()
       flash(f'Teleported {player} to {location}', 'success')
@@ -176,22 +229,12 @@ def quit():
 @FLASK_APP.route("/mods")
 def mods():
    try:
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
 
       # Get current server mods from ini file
       ini_file = CONFIG['server']['server_ini_file']
-      current_workshop_ids = []
-      current_mod_ids = []
-
-      if os.path.exists(ini_file):
-         with open(ini_file, 'r') as f:
-            for line in f:
-               if line.startswith('WorkshopItems='):
-                  current_workshop_ids = [id.strip() for id in line.split('=')[1].strip().split(';') if id.strip()]
-               elif line.startswith('Mods='):
-                  current_mod_ids = [id.strip() for id in line.split('=')[1].strip().split(';') if id.strip()]
+      current_workshop_ids, current_mod_ids = parse_ini_mods(ini_file)
 
       return render_template("mods.html",
                            mod_database=mod_database,
@@ -204,8 +247,7 @@ def mods():
 @FLASK_APP.route('/api/mods', methods=['GET'])
 def api_get_mods():
    try:
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
       return jsonify({'mods': mod_database})
    except Exception as e:
@@ -223,8 +265,12 @@ def api_add_mod():
       if not workshop_url or not mod_name or not workshop_ids or not mod_ids:
          return jsonify({'error': 'All fields are required'}), 400
 
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      # Validate mod data
+      validation_errors = validate_mod_data(workshop_ids, mod_ids)
+      if validation_errors:
+         return jsonify({'error': 'Validation failed', 'details': validation_errors}), 400
+
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
 
       mod_database[workshop_url] = {
@@ -234,7 +280,7 @@ def api_add_mod():
          'enabled': True
       }
 
-      with open(mod_db_file, 'w') as f:
+      with open(MODS_DB_FILE, 'w') as f:
          json.dump(mod_database, f, indent=4)
 
       return jsonify({'message': 'Mod added successfully'})
@@ -250,8 +296,7 @@ def api_remove_mod():
       if not workshop_url:
          return jsonify({'error': 'Workshop URL is required'}), 400
 
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
 
       if workshop_url not in mod_database:
@@ -259,7 +304,7 @@ def api_remove_mod():
 
       del mod_database[workshop_url]
 
-      with open(mod_db_file, 'w') as f:
+      with open(MODS_DB_FILE, 'w') as f:
          json.dump(mod_database, f, indent=4)
 
       return jsonify({'message': 'Mod removed successfully'})
@@ -275,8 +320,7 @@ def api_toggle_mod():
       if not workshop_url:
          return jsonify({'error': 'Workshop URL is required'}), 400
 
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
 
       if workshop_url not in mod_database:
@@ -286,7 +330,7 @@ def api_toggle_mod():
       current_state = mod_database[workshop_url].get('enabled', True)
       mod_database[workshop_url]['enabled'] = not current_state
 
-      with open(mod_db_file, 'w') as f:
+      with open(MODS_DB_FILE, 'w') as f:
          json.dump(mod_database, f, indent=4)
 
       new_state = mod_database[workshop_url]['enabled']
@@ -300,8 +344,7 @@ def api_toggle_mod():
 @FLASK_APP.route('/api/mods/apply', methods=['POST'])
 def api_apply_mods():
    try:
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
-      with open(mod_db_file, 'r') as f:
+      with open(MODS_DB_FILE, 'r') as f:
          mod_database = json.load(f)
 
       all_workshop_ids = []
@@ -320,23 +363,19 @@ def api_apply_mods():
       if not os.path.exists(ini_file):
          return jsonify({'error': f'Server ini file not found at: {ini_file}'}), 404
 
-      replacement_data = {
-         "WorkshopItems=": "WorkshopItems=" + ";".join(all_workshop_ids) + "\n",
-         "Mods=": "Mods=" + ";".join(all_mod_ids) + "\n",
-      }
+      success, result = update_ini_mods(ini_file, all_workshop_ids, all_mod_ids)
 
-      with open(ini_file, "r") as f:
-         lines = f.readlines()
-         for i, line in enumerate(lines):
-            for identifier, replacement_line in replacement_data.items():
-               if line.startswith(identifier):
-                  lines[i] = replacement_line
-
-      with open(ini_file, "w") as f:
-         f.writelines(lines)
+      if not success:
+         return jsonify({'error': f'Failed to update ini file: {result}'}), 500
 
       add_to_log(f"Applied {enabled_count} enabled mods to server configuration")
-      return jsonify({'message': f'Applied {enabled_count} enabled mods to server configuration'})
+      add_to_log(f"Created backup: {os.path.basename(result)}")
+      return jsonify({
+         'message': f'Applied {enabled_count} enabled mods to server configuration',
+         'backup': os.path.basename(result),
+         'workshop_ids_count': len(all_workshop_ids),
+         'mod_ids_count': len(all_mod_ids)
+      })
    except Exception as e:
       return jsonify({'error': str(e)}), 500
 
@@ -403,15 +442,72 @@ def api_fetch_mod_info():
 @FLASK_APP.route('/api/mods/backup', methods=['POST'])
 def api_backup_mod_db():
    try:
-      mod_db_file = os.path.join(os.path.dirname(__file__), '..', 'mod_db.json')
       backup_file = os.path.join(os.path.dirname(__file__), '..', f'mod_db_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
 
       import shutil
-      shutil.copy2(mod_db_file, backup_file)
+      shutil.copy2(MODS_DB_FILE, backup_file)
 
       return jsonify({'message': f'Backup created: {os.path.basename(backup_file)}'})
    except Exception as e:
       return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route('/api/locations', methods=['GET'])
+def api_get_locations():
+   """Get all saved locations"""
+   try:
+      # Use only database locations
+      all_locations = {}
+      for name, data in LOCATIONS_DATABASE.items():
+         all_locations[name] = data["coordinates"]
+
+      return jsonify({
+         'locations': all_locations,
+         'database_locations': LOCATIONS_DATABASE
+      })
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route('/api/locations/add', methods=['POST'])
+def api_add_location():
+   """Add a new location to the database"""
+   try:
+      data = request.get_json()
+      name = data.get('name', '').strip()
+      coordinates = data.get('coordinates', '').strip()
+      description = data.get('description', '').strip()
+
+      if not name or not coordinates:
+         return jsonify({'error': 'Name and coordinates are required'}), 400
+
+      if name in LOCATIONS_DATABASE:
+         return jsonify({'error': f'Location "{name}" already exists'}), 400
+
+      add_location_to_database(name, coordinates, description)
+
+      return jsonify({'message': f'Location "{name}" added successfully'})
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route("/locations")
+def locations():
+   """Location management page"""
+   try:
+      # Merge current session users with persistent database
+      all_players = dict(PLAYER_DATABASE)
+      for username, user_data in USERS.items():
+         if username in all_players:
+            all_players[username].update(user_data)
+         else:
+            all_players[username] = user_data
+
+      # Use only database locations
+      return render_template("locations.html",
+                           database_locations=LOCATIONS_DATABASE,
+                           users=all_players,
+                           server_status=SERVER_STATUS)
+   except Exception as e:
+      flash(f'Error loading locations: {str(e)}', 'error')
+      return redirect(url_for('index'))
 
 def launch_webui():
    def threaded_flask():
@@ -505,16 +601,11 @@ def scan_line(decoded_line):
       if ZOMBOID_USER_LOGGED_IN_INDICATOR in decoded_line:
          username = extract_username(decoded_line)
          if username:
-            if username not in USERS:
-               USERS[username] = {"last_seen": datetime.now().isoformat()}
-            USERS[username]["online"] = True
-            add_to_log(f"User {username} logged in")
+            update_player_status(username, online=True)
       elif ZOMBOID_USER_LOGGED_OUT_INDICATOR in decoded_line:
          username = extract_username(decoded_line)
-         if username and username in USERS:
-            USERS[username]["online"] = False
-            USERS[username]["last_seen"] = datetime.now().isoformat()
-            add_to_log(f"User {username} logged out")
+         if username:
+            update_player_status(username, online=False)
       elif ZOMBOID_SERVER_STARTED_INDICATOR in decoded_line:
          SERVER_STATUS = "Running"
    except Exception as e:
@@ -549,9 +640,17 @@ def run_server_in_thread():
 
 def main():
    """Main entry point for the Project Zomboid Admin Panel application"""
-   global SERVER_SHOULD_QUIT
+   global SERVER_SHOULD_QUIT, USERS, PLAYER_DATABASE
    print("Starting Project Zomboid Admin Panel...")
    print("Note: Game server will not start automatically. Use the web interface to start it.")
+
+   # Load existing players into current session (mark all as offline initially)
+   for username, player_data in PLAYER_DATABASE.items():
+      USERS[username] = {
+         "online": False,
+         "last_seen": player_data.get("last_seen", "Unknown"),
+         "first_seen": player_data.get("first_seen", "Unknown")
+      }
 
    # Launch the web UI
    launch_webui()
@@ -578,3 +677,245 @@ def main():
 
 if __name__ == "__main__":
    main()
+
+def parse_ini_mods(ini_file_path):
+   """Parse WorkshopItems and Mods from the ini file safely with encoding detection"""
+   current_workshop_ids = []
+   current_mod_ids = []
+
+   try:
+      if not os.path.exists(ini_file_path):
+         return current_workshop_ids, current_mod_ids
+
+      # Try different encodings in order of preference
+      encodings = ['utf-8', 'utf-8-sig', 'cp1252', 'iso-8859-1', 'latin1']
+      content = None
+
+      for encoding in encodings:
+         try:
+            with open(ini_file_path, 'r', encoding=encoding) as f:
+               content = f.read()
+            break
+         except UnicodeDecodeError:
+            continue
+
+      if content is None:
+         # Final fallback - read as binary and decode with error handling
+         with open(ini_file_path, 'rb') as f:
+            raw_content = f.read()
+         content = raw_content.decode('utf-8', errors='replace')
+         print("Using fallback encoding with error replacement")
+
+      # Use regex for more robust parsing
+      import re
+
+      # Parse WorkshopItems - only match lines that start with WorkshopItems=
+      workshop_match = re.search(r'^WorkshopItems\s*=\s*(.*)$', content, re.MULTILINE)
+      if workshop_match:
+         workshop_text = workshop_match.group(1).strip()
+         current_workshop_ids = [id.strip() for id in workshop_text.split(';') if id.strip()]
+
+      # Parse Mods - only match lines that start with Mods=
+      mods_match = re.search(r'^Mods\s*=\s*(.*)$', content, re.MULTILINE)
+      if mods_match:
+         mods_text = mods_match.group(1).strip()
+         current_mod_ids = [id.strip() for id in mods_text.split(';') if id.strip()]
+
+   except Exception as e:
+      print(f"Error parsing ini file: {e}")
+      add_to_log(f"Error parsing ini file: {e}")
+
+   return current_workshop_ids, current_mod_ids
+
+def update_ini_mods(ini_file_path, workshop_ids, mod_ids):
+   """Update the ini file with new mod configurations safely"""
+   try:
+      # Create backup
+      import shutil
+      backup_path = f"{ini_file_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+      shutil.copy2(ini_file_path, backup_path)
+
+      # Remove duplicates while preserving order
+      workshop_ids = list(dict.fromkeys(workshop_ids))
+      mod_ids = list(dict.fromkeys(mod_ids))
+
+      # Validate IDs (basic validation)
+      workshop_ids = [id for id in workshop_ids if id.isdigit()]
+      mod_ids = [id for id in mod_ids if re.match(r'^[a-zA-Z0-9_\-&%\(\)\s]+$', id)]
+
+      # Read file with same encoding detection as parse_ini_mods
+      encodings = ['utf-8', 'utf-8-sig', 'cp1252', 'iso-8859-1', 'latin1']
+      content = None
+      detected_encoding = 'utf-8'
+
+      for encoding in encodings:
+         try:
+            with open(ini_file_path, 'r', encoding=encoding) as f:
+               content = f.read()
+            detected_encoding = encoding
+            break
+         except UnicodeDecodeError:
+            continue
+
+      if content is None:
+         # Final fallback - read as binary and decode with error handling
+         with open(ini_file_path, 'rb') as f:
+            raw_content = f.read()
+         content = raw_content.decode('utf-8', errors='replace')
+         detected_encoding = 'utf-8'
+
+      # Replace WorkshopItems - only match lines that start with WorkshopItems=
+      workshop_line = "WorkshopItems=" + ";".join(workshop_ids)
+      old_content = content
+      content = re.sub(r'^WorkshopItems\s*=.*$', workshop_line, content, flags=re.MULTILINE)
+      if old_content != content:
+         print(f"Updated WorkshopItems line to: {workshop_line}")
+
+      # Replace Mods - only match lines that start with Mods=
+      mods_line = "Mods=" + ";".join(mod_ids)
+      old_content = content
+      content = re.sub(r'^Mods\s*=.*$', mods_line, content, flags=re.MULTILINE)
+      if old_content != content:
+         print(f"Updated Mods line to: {mods_line}")
+
+      # Write back with the detected encoding
+      with open(ini_file_path, 'w', encoding=detected_encoding) as f:
+         f.write(content)
+
+      return True, backup_path
+   except Exception as e:
+      return False, str(e)
+
+def validate_mod_data(workshop_ids, mod_ids):
+   """Validate mod IDs and workshop IDs"""
+   errors = []
+
+   # Validate workshop IDs (should be numeric)
+   for wid in workshop_ids:
+      if not wid.isdigit():
+         errors.append(f"Invalid workshop ID: {wid} (must be numeric)")
+
+   # Validate mod IDs (alphanumeric with some special chars)
+   for mid in mod_ids:
+      if not re.match(r'^[a-zA-Z0-9_\-&%\(\)\s]+$', mid):
+         errors.append(f"Invalid mod ID: {mid} (contains invalid characters)")
+
+   return errors
+
+def save_player_database():
+   """Save the player database to file"""
+   try:
+      with open(PLAYER_DB_FILE, 'w') as f:
+         json.dump(PLAYER_DATABASE, f, indent=4)
+   except Exception as e:
+      print(f"Error saving player database: {e}")
+
+def update_player_status(username, online=True):
+   """Update player status in both memory and persistent database"""
+   global USERS, PLAYER_DATABASE
+
+   timestamp = datetime.now().isoformat()
+
+   # Update memory (for current session)
+   if username not in USERS:
+      USERS[username] = {"online": online, "last_seen": timestamp}
+   else:
+      USERS[username]["online"] = online
+      USERS[username]["last_seen"] = timestamp
+
+   # Update persistent database
+   if username not in PLAYER_DATABASE:
+      PLAYER_DATABASE[username] = {
+         "first_seen": timestamp,
+         "last_seen": timestamp,
+         "online": online
+      }
+   else:
+      PLAYER_DATABASE[username]["last_seen"] = timestamp
+      PLAYER_DATABASE[username]["online"] = online
+
+   save_player_database()
+   add_to_log(f"Player {username} {'connected' if online else 'disconnected'}")
+
+def save_locations_database():
+   """Save the locations database to file"""
+   try:
+      with open(LOCATIONS_DB_FILE, 'w') as f:
+         json.dump(LOCATIONS_DATABASE, f, indent=4)
+   except Exception as e:
+      print(f"Error saving locations database: {e}")
+
+def add_location_to_database(name, coordinates, description=""):
+   """Add a new location to the database"""
+   global LOCATIONS_DATABASE
+
+   LOCATIONS_DATABASE[name] = {
+      "coordinates": coordinates,
+      "description": description,
+      "created": datetime.now().isoformat()
+   }
+
+   save_locations_database()
+   add_to_log(f"Added location '{name}' at coordinates {coordinates}")
+
+@FLASK_APP.route('/api/locations/edit', methods=['POST'])
+def api_edit_location():
+   """Edit an existing location in the database"""
+   try:
+      data = request.get_json()
+      old_name = data.get('old_name', '').strip()
+      new_name = data.get('new_name', '').strip()
+      coordinates = data.get('coordinates', '').strip()
+      description = data.get('description', '').strip()
+
+      if not old_name or not new_name or not coordinates:
+         return jsonify({'error': 'Old name, new name, and coordinates are required'}), 400
+
+      if old_name not in LOCATIONS_DATABASE:
+         return jsonify({'error': f'Location "{old_name}" not found'}), 404
+
+      # If name is changing, check if new name already exists
+      if old_name != new_name and new_name in LOCATIONS_DATABASE:
+         return jsonify({'error': f'Location "{new_name}" already exists'}), 400
+
+      # Update the location
+      location_data = LOCATIONS_DATABASE[old_name].copy()
+      location_data['coordinates'] = coordinates
+      location_data['description'] = description
+      location_data['modified'] = datetime.now().isoformat()
+
+      # If name changed, remove old entry and add new one
+      if old_name != new_name:
+         del LOCATIONS_DATABASE[old_name]
+         LOCATIONS_DATABASE[new_name] = location_data
+         add_to_log(f"Renamed location '{old_name}' to '{new_name}' and updated coordinates to {coordinates}")
+      else:
+         LOCATIONS_DATABASE[old_name] = location_data
+         add_to_log(f"Updated location '{old_name}' coordinates to {coordinates}")
+
+      save_locations_database()
+
+      return jsonify({'message': f'Location updated successfully'})
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500
+
+@FLASK_APP.route('/api/locations/delete', methods=['POST'])
+def api_delete_location():
+   """Delete a location from the database"""
+   try:
+      data = request.get_json()
+      name = data.get('name', '').strip()
+
+      if not name:
+         return jsonify({'error': 'Location name is required'}), 400
+
+      if name not in LOCATIONS_DATABASE:
+         return jsonify({'error': f'Location "{name}" not found'}), 404
+
+      del LOCATIONS_DATABASE[name]
+      save_locations_database()
+      add_to_log(f"Deleted location '{name}'")
+
+      return jsonify({'message': f'Location "{name}" deleted successfully'})
+   except Exception as e:
+      return jsonify({'error': str(e)}), 500

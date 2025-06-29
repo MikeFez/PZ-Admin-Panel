@@ -69,6 +69,14 @@
         .stats-card {
             background: linear-gradient(45deg, #ffecd2 0%, #fcb69f 100%);
         }
+
+        .header-actions {
+            gap: 0.75rem;
+        }
+
+        .header-actions .btn {
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -80,9 +88,17 @@
                         <h1 class="text-white">
                             <i class="fas fa-puzzle-piece"></i> Mod Manager
                         </h1>
-                        <a href="{{ url_for('index') }}" class="btn btn-outline-light">
-                            <i class="fas fa-arrow-left"></i> Back to Admin Panel
-                        </a>
+                        <div class="d-flex header-actions align-items-center">
+                            <button class="btn btn-apply-mods" onclick="applyEnabledMods()">
+                                <i class="fas fa-cog"></i> Apply Enabled Mods
+                            </button>
+                            <button class="btn btn-info" onclick="backupModDatabase()">
+                                <i class="fas fa-save"></i> Backup Database
+                            </button>
+                            <a href="{{ url_for('index') }}" class="btn btn-outline-light">
+                                <i class="fas fa-arrow-left"></i> Back to Admin Panel
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -104,86 +120,70 @@
             {% endwith %}
 
             <div class="row">
-                <!-- Mod Statistics -->
-                <div class="col-lg-3 mb-4">
+                <!-- Top row with equal height cards -->
+                <div class="col-lg-4 mb-4">
                     <div class="card stats-card h-100">
-                        <div class="card-body">
+                        <div class="card-body d-flex flex-column">
                             <h5><i class="fas fa-chart-bar"></i> Statistics</h5>
-                            <div class="stats">
+                            <div class="stats flex-grow-1">
                                 <p><strong>Total Mods:</strong> <span id="totalMods">{{ mod_database|length }}</span></p>
                                 <p><strong>Enabled:</strong> <span id="enabledModCountStat">{{ mod_database.values()|selectattr('enabled', 'equalto', true)|list|length }}</span></p>
                                 <p><strong>Active Workshop IDs:</strong> <span id="activeWorkshopIds">{{ current_workshop_ids|length }}</span></p>
                                 <p><strong>Active Mod IDs:</strong> <span id="activeModIds">{{ current_mod_ids|length }}</span></p>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- Quick Actions -->
-                    <div class="card mt-3">
-                        <div class="card-header">
-                            <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-apply-mods" onclick="applyEnabledMods()">
-                                    <i class="fas fa-cog"></i> Apply Enabled Mods
-                                </button>
-                                <button class="btn btn-info" onclick="backupModDatabase()">
-                                    <i class="fas fa-save"></i> Backup Database
-                                </button>
-                                <div class="mt-2">
-                                    <small class="text-muted">
-                                        <span id="enabledModCount">0</span> mods enabled for application
-                                    </small>
-                                </div>
+                            <div class="mt-auto">
+                                <small class="text-muted">
+                                    <span id="enabledModCount">{{ mod_database.values()|selectattr('enabled', 'equalto', true)|list|length }}</span> mods enabled for application
+                                </small>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Add New Mod -->
-                <div class="col-lg-9 mb-4">
-                    <div class="card">
+                <div class="col-lg-8 mb-4">
+                    <div class="card h-100">
                         <div class="card-header">
                             <h4><i class="fas fa-plus"></i> Add New Mod</h4>
                         </div>
                         <div class="card-body">
                             <form id="addModForm">
                                 <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label class="form-label">Workshop URL</label>
-                                            <div class="input-group">
-                                                <input type="url" class="form-control" id="workshopUrl"
-                                                       placeholder="https://steamcommunity.com/sharedfiles/filedetails/?id=123456" required>
-                                                <button type="button" class="btn btn-outline-primary" onclick="fetchModInfo()">
-                                                    <i class="fas fa-download"></i> Auto-Fill
-                                                </button>
-                                            </div>
-                                            <small class="form-text text-muted">Auto-Fill will try to fetch mod information from Steam Workshop</small>
+                                    <div class="col-md-12 mb-3">
+                                        <label for="workshopUrl" class="form-label">Workshop URL</label>
+                                        <div class="input-group">
+                                            <input type="url" class="form-control" id="workshopUrl" placeholder="https://steamcommunity.com/sharedfiles/filedetails/?id=123456">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="fetchModInfo()">
+                                                <i class="fas fa-download"></i> Auto-Fill
+                                            </button>
                                         </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">Mod Name</label>
-                                            <input type="text" class="form-control" id="modName"
-                                                   placeholder="Enter mod name" required>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label class="form-label">Workshop IDs (comma-separated)</label>
-                                            <input type="text" class="form-control" id="workshopIds"
-                                                   placeholder="123456,789012" required>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">Mod IDs (comma-separated)</label>
-                                            <input type="text" class="form-control" id="modIds"
-                                                   placeholder="modname1,modname2" required>
-                                        </div>
+                                        <div class="form-text">Auto-Fill will try to fetch mod information from Steam Workshop</div>
                                     </div>
                                 </div>
-                                <div class="text-end">
-                                    <button type="submit" class="btn btn-success">
-                                        <i class="fas fa-plus"></i> Add Mod
+
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="modName" class="form-label">Mod Name</label>
+                                        <input type="text" class="form-control" id="modName" placeholder="Enter mod name">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="workshopIds" class="form-label">Workshop IDs</label>
+                                        <input type="text" class="form-control" id="workshopIds" placeholder="123456,789012">
+                                        <div class="form-text">Comma-separated workshop IDs</div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label for="modIds" class="form-label">Mod IDs</label>
+                                        <input type="text" class="form-control" id="modIds" placeholder="ModName1,ModName2">
+                                        <div class="form-text">Comma-separated mod IDs as they appear in the mod files</div>
+                                    </div>
+                                </div>
+
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-plus"></i> Add Mod to Database
                                     </button>
                                 </div>
                             </form>

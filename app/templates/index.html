@@ -142,28 +142,35 @@
                 <div class="col-lg-4 mb-4">
                     <div class="card h-100">
                         <div class="card-header">
-                            <h4><i class="fas fa-users"></i> Online Players ({{ users|length }})</h4>
+                            <h4><i class="fas fa-users"></i> Members (<span id="memberCount">{{ users|length }}</span>)</h4>
                         </div>
                         <div class="card-body">
-                            {% if users %}
-                                <div class="list-group">
-                                    {% for username, user_data in users.items() %}
-                                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span class="{% if user_data.online %}player-online{% else %}player-offline{% endif %}">
-                                                <i class="fas fa-{% if user_data.online %}circle{% else %}circle-o{% endif %}"></i>
-                                                {{ username }}
-                                            </span>
-                                            {% if user_data.online %}
-                                                <small class="text-success">Online</small>
-                                            {% else %}
-                                                <small class="text-muted">Last seen: {{ user_data.get('last_seen', 'Unknown') }}</small>
-                                            {% endif %}
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            {% else %}
-                                <p class="text-muted text-center">No players have connected yet</p>
-                            {% endif %}
+                            <div id="membersList">
+                                {% if users %}
+                                    <div class="list-group">
+                                        {% for username, user_data in users.items() %}
+                                            <div class="list-group-item d-flex justify-content-between align-items-center member-item" data-username="{{ username }}">
+                                                <span class="{% if user_data.online %}player-online{% else %}player-offline{% endif %}">
+                                                    <i class="fas fa-{% if user_data.online %}circle text-success{% else %}circle text-muted{% endif %}"></i>
+                                                    {{ username }}
+                                                </span>
+                                                <div class="text-end">
+                                                    {% if user_data.online %}
+                                                        <small class="text-success d-block">Online</small>
+                                                    {% else %}
+                                                        <small class="text-muted d-block">Offline</small>
+                                                    {% endif %}
+                                                    {% if user_data.get('last_seen') %}
+                                                        <small class="text-muted">{{ user_data.last_seen[:16] if user_data.last_seen|length > 16 else user_data.last_seen }}</small>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <p class="text-muted text-center">No players have connected yet</p>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -176,23 +183,23 @@
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
-                                <button class="btn btn-info" onclick="sendCommand('save')"
+                                <button id="saveWorldBtn" class="btn btn-info" onclick="sendCommand('save')"
                                         {% if server_status != 'Running' %}disabled{% endif %}>
                                     <i class="fas fa-save"></i> Save World
                                 </button>
-                                <button class="btn btn-warning" onclick="sendCommand('servermsg &quot;Server restart in 5 minutes!&quot;')"
+                                <button id="announceBtn" class="btn btn-warning" onclick="sendCommand('servermsg &quot;Server restart in 5 minutes!&quot;')"
                                         {% if server_status != 'Running' %}disabled{% endif %}>
                                     <i class="fas fa-exclamation-triangle"></i> Announce Restart
                                 </button>
-                                <button class="btn btn-secondary" onclick="sendCommand('players')"
+                                <button id="listPlayersBtn" class="btn btn-secondary" onclick="sendCommand('players')"
                                         {% if server_status != 'Running' %}disabled{% endif %}>
                                     <i class="fas fa-list"></i> List Players
                                 </button>
-                                <button class="btn btn-info" onclick="refreshStatus()">
-                                    <i class="fas fa-sync-alt"></i> Refresh Status
-                                </button>
                                 <a href="{{ url_for('mods') }}" class="btn btn-purple">
                                     <i class="fas fa-puzzle-piece"></i> Manage Mods
+                                </a>
+                                <a href="{{ url_for('locations') }}" class="btn btn-info">
+                                    <i class="fas fa-map-marked-alt"></i> Manage Locations
                                 </a>
                                 <a href="{{ url_for('quit') }}" class="btn btn-outline-danger">
                                     <i class="fas fa-power-off"></i> Shutdown Panel
@@ -204,7 +211,7 @@
             </div>
 
             <!-- Teleport Controls -->
-            {% if users %}
+            {% if players %}
             <div class="row">
                 <div class="col-lg-6 mb-4">
                     <div class="card">
@@ -216,7 +223,7 @@
                                 <div class="col-md-6">
                                     <label class="form-label">Teleport Player:</label>
                                     <select class="form-select" id="fromPlayer">
-                                        {% for username in users.keys() %}
+                                        {% for username in players %}
                                             <option value="{{ username }}">{{ username }}</option>
                                         {% endfor %}
                                     </select>
@@ -224,7 +231,7 @@
                                 <div class="col-md-6">
                                     <label class="form-label">To Player:</label>
                                     <select class="form-select" id="toPlayer">
-                                        {% for username in users.keys() %}
+                                        {% for username in players %}
                                             <option value="{{ username }}">{{ username }}</option>
                                         {% endfor %}
                                     </select>
@@ -250,7 +257,7 @@
                                 <div class="col-md-6">
                                     <label class="form-label">Player:</label>
                                     <select class="form-select" id="playerToLocation">
-                                        {% for username in users.keys() %}
+                                        {% for username in players %}
                                             <option value="{{ username }}">{{ username }}</option>
                                         {% endfor %}
                                     </select>
@@ -258,10 +265,9 @@
                                 <div class="col-md-6">
                                     <label class="form-label">Location:</label>
                                     <select class="form-select" id="targetLocation">
-                                        <option value="Base 1">Base 1</option>
-                                        <option value="West Point">West Point</option>
-                                        <option value="Muldraugh">Muldraugh</option>
-                                        <option value="Riverside">Riverside</option>
+                                        {% for location_name in locations.keys() %}
+                                            <option value="{{ location_name }}">{{ location_name }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                             </div>
@@ -302,8 +308,8 @@
     <script>
         let lastLogUpdate = 0;
 
-        // Auto-refresh status every 5 seconds
-        setInterval(refreshStatus, 5000);
+        // Auto-refresh status every 3 seconds for better real-time updates
+        setInterval(refreshStatus, 3000);
 
         // Initial load
         refreshStatus();
@@ -315,6 +321,9 @@
                 .then(data => {
                     // Update server status
                     updateServerStatus(data.server_status);
+
+                    // Update members list
+                    updateMembersList(data.users);
 
                     // Update log if there are new entries
                     if (data.log_lines && data.log_lines.length > lastLogUpdate) {
@@ -337,15 +346,28 @@
             const commandInput = document.getElementById('commandInput');
             const sendBtn = document.querySelector('button[onclick="sendCommand()"]');
 
-            startBtn.disabled = status !== 'Stopped';
-            stopBtn.disabled = status === 'Stopped';
-            restartBtn.disabled = status !== 'Running';
-            commandInput.disabled = status !== 'Running';
-            sendBtn.disabled = status !== 'Running';
+            // Quick action buttons
+            const saveWorldBtn = document.getElementById('saveWorldBtn');
+            const announceBtn = document.getElementById('announceBtn');
+            const listPlayersBtn = document.getElementById('listPlayersBtn');
+
+            const isRunning = status === 'Running';
+            const isStopped = status === 'Stopped';
+
+            if (startBtn) startBtn.disabled = !isStopped;
+            if (stopBtn) stopBtn.disabled = isStopped;
+            if (restartBtn) restartBtn.disabled = !isRunning;
+            if (commandInput) commandInput.disabled = !isRunning;
+            if (sendBtn) sendBtn.disabled = !isRunning;
+
+            // Quick action buttons
+            if (saveWorldBtn) saveWorldBtn.disabled = !isRunning;
+            if (announceBtn) announceBtn.disabled = !isRunning;
+            if (listPlayersBtn) listPlayersBtn.disabled = !isRunning;
 
             // Update all teleport buttons
             document.querySelectorAll('.btn-teleport').forEach(btn => {
-                btn.disabled = status !== 'Running';
+                btn.disabled = !isRunning;
             });
         }
 
@@ -477,6 +499,54 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function updateMembersList(users) {
+            const membersList = document.getElementById('membersList');
+            const memberCount = document.getElementById('memberCount');
+
+            if (!users || Object.keys(users).length === 0) {
+                membersList.innerHTML = '<p class="text-muted text-center">No players have connected yet</p>';
+                memberCount.textContent = '0';
+                return;
+            }
+
+            // Sort users: online first, then by username
+            const sortedUsers = Object.entries(users).sort((a, b) => {
+                const [nameA, dataA] = a;
+                const [nameB, dataB] = b;
+
+                // Online status priority
+                if (dataA.online && !dataB.online) return -1;
+                if (!dataA.online && dataB.online) return 1;
+
+                // Then alphabetical
+                return nameA.localeCompare(nameB);
+            });
+
+            let html = '<div class="list-group">';
+            sortedUsers.forEach(([username, userData]) => {
+                const isOnline = userData.online || false;
+                const lastSeen = userData.last_seen || '';
+                const displayTime = lastSeen.length > 16 ? lastSeen.substring(0, 16) : lastSeen;
+
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center member-item" data-username="${username}">
+                        <span class="${isOnline ? 'player-online' : 'player-offline'}">
+                            <i class="fas fa-circle ${isOnline ? 'text-success' : 'text-muted'}"></i>
+                            ${username}
+                        </span>
+                        <div class="text-end">
+                            <small class="${isOnline ? 'text-success' : 'text-muted'} d-block">${isOnline ? 'Online' : 'Offline'}</small>
+                            ${lastSeen ? `<small class="text-muted">${displayTime}</small>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+
+            membersList.innerHTML = html;
+            memberCount.textContent = Object.keys(users).length;
         }
 
         // Allow Enter key to send commands

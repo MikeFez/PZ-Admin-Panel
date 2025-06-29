@@ -552,12 +552,12 @@
     },
     "https://steamcommunity.com/sharedfiles/filedetails/?id=2743994841": {
         "workshop_item_name": "What Did You Put In Here?",
-        "enabled": true,
         "workshop_ids": [
             "2743994841"
         ],
         "mod_ids": [
             "WDYPIH"
-        ]
+        ],
+        "enabled": true
     }
 }
