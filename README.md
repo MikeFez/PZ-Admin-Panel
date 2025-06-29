@@ -1,6 +1,6 @@
 # Project Zomboid Server Admin Panel
 
-A modern, responsive web-based administration panel for managing Project Zomboid dedicated servers.
+A web-based administration panel for managing Project Zomboid dedicated servers.
 
 **Note: I'm a software engineer with a lack of time. This was very much vibe-coded with Claude Sonnet 4.**
 
@@ -15,7 +15,6 @@ A modern, responsive web-based administration panel for managing Project Zomboid
 ### 👥 Player Management
 - **Live Player List**: See who's online/offline
 - **Player Teleportation**: Teleport players to each other or to predefined locations
-- **Player Activity Tracking**: Last seen timestamps for offline players
 - **Admin Management**: Grant/remove admin privileges for online players (requires manual `allow_admin` setup)
 
 ### 🧩 Mod Management
@@ -29,14 +28,6 @@ A modern, responsive web-based administration panel for managing Project Zomboid
 ### 🚀 Quick Actions
 - **Save World**: Instantly save the game world
 - **Server Announcements**: Send messages to all players
-- **Time Control**: Set day/night cycle
-- **Refresh Status**: Manual status updates
-
-### 🎨 Modern UI
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Real-time Updates**: Auto-refreshing every 5 seconds
-- **Beautiful Gradients**: Modern visual design
-- **Interactive Elements**: Smooth animations and transitions
 
 ## Installation
 
@@ -288,28 +279,6 @@ The panel is built with:
 - **Backend**: Python Flask
 - **Frontend**: Bootstrap 5, Font Awesome icons
 - **Real-time Updates**: JavaScript fetch API with auto-refresh
-
-### File Structure
-```
-├── app/                      # Application code directory
-│   ├── __init__.py          # Package initialization
-│   ├── server_app.py        # Main Flask application
-│   ├── config.py            # Configuration and database management
-│   ├── ini_file_inject_mods_from_db.py  # Mod injection utility
-│   └── templates/           # Web interface templates
-│       ├── index.html       # Main admin panel template
-│       ├── mods.html        # Mod manager template
-│       └── locations.html   # Location management template
-├── config/                  # Configuration and database files (gitignored)
-│   ├── config.json         # Main application configuration
-│   ├── players_db.json     # Player database
-│   ├── locations_db.json   # Saved locations
-│   └── mods_db.json        # Mod collection database
-├── main.py                 # Main entry point
-├── requirements.txt        # Python dependencies
-├── .gitignore              # Git ignore rules
-└── README.md              # This file
-```
 
 ### Adding New Features
 1. Add API endpoints in `app/server_app.py`
