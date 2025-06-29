@@ -1,6 +1,7 @@
 # Project Zomboid Server Admin Panel
 
 A modern, responsive web-based administration panel for managing Project Zomboid dedicated servers.
+
 **Note: I'm a software engineer with a lack of time. This was very much vibe-coded with Claude Sonnet 4.**
 
 ## Features
